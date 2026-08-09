@@ -1,0 +1,124 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "node",
+    "languages": [
+      "markdown"
+    ],
+    "frameworks": [],
+    "description": "Specification-first skeleton for a Nostr-native blockchain reference node.",
+    "analyzedAt": "2026-08-09T11:47:15.022Z",
+    "gitCommitHash": "UNVERIFIED"
+  },
+  "nodes": [
+    {
+      "id": "document:AGENTS.md",
+      "type": "document",
+      "name": "AGENTS.md",
+      "filePath": "AGENTS.md",
+      "summary": "Repository agent guidance describing the current specification-first state and architectural guardrails.",
+      "tags": ["agents", "repository-policy", "documentation"]
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "Root README that currently contains only the repository title.",
+      "tags": ["readme", "stub", "documentation"]
+    },
+    {
+      "id": "document:docs/Nostr_Blockchain_Reference_Node_Architecture.md",
+      "type": "document",
+      "name": "Nostr_Blockchain_Reference_Node_Architecture.md",
+      "filePath": "docs/Nostr_Blockchain_Reference_Node_Architecture.md",
+      "summary": "Primary architecture specification for the minimal Nostr-native full node reference implementation.",
+      "tags": ["architecture", "specification", "protocol"]
+    },
+    {
+      "id": "document:.kilocode/rules/memory-bank/brief.md",
+      "type": "document",
+      "name": "brief.md",
+      "filePath": ".kilocode/rules/memory-bank/brief.md",
+      "summary": "Local-only memory bank summary of the repository state.",
+      "tags": ["memory-bank", "local-only", "documentation"]
+    },
+    {
+      "id": "document:.kilocode/rules/memory-bank/context.md",
+      "type": "document",
+      "name": "context.md",
+      "filePath": ".kilocode/rules/memory-bank/context.md",
+      "summary": "Local-only working context for current repository understanding.",
+      "tags": ["memory-bank", "local-only", "documentation"]
+    },
+    {
+      "id": "document:.kilocode/rules/memory-bank/active.md",
+      "type": "document",
+      "name": "active.md",
+      "filePath": ".kilocode/rules/memory-bank/active.md",
+      "summary": "Local-only list of current active work items.",
+      "tags": ["memory-bank", "local-only", "documentation"]
+    }
+  ],
+  "edges": [
+    {
+      "source": "document:AGENTS.md",
+      "target": "document:docs/Nostr_Blockchain_Reference_Node_Architecture.md",
+      "type": "documents",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.kilocode/rules/memory-bank/brief.md",
+      "target": "document:docs/Nostr_Blockchain_Reference_Node_Architecture.md",
+      "type": "documents",
+      "weight": 0.5
+    },
+    {
+      "source": "document:.kilocode/rules/memory-bank/context.md",
+      "target": "document:AGENTS.md",
+      "type": "documents",
+      "weight": 0.5
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:repository-guidance",
+      "name": "Repository Guidance",
+      "description": "Entry-point documents that define current repository policy and top-level orientation.",
+      "nodeIds": ["document:AGENTS.md", "document:README.md"]
+    },
+    {
+      "id": "layer:protocol-specification",
+      "name": "Protocol Specification",
+      "description": "The architecture specification that defines the intended reference-node design and constraints.",
+      "nodeIds": ["document:docs/Nostr_Blockchain_Reference_Node_Architecture.md"]
+    },
+    {
+      "id": "layer:volatile-memory",
+      "name": "Volatile Memory",
+      "description": "Local-only, noncanonical memory-bank files that summarize current work and point back to durable sources.",
+      "nodeIds": ["document:.kilocode/rules/memory-bank/brief.md", "document:.kilocode/rules/memory-bank/context.md", "document:.kilocode/rules/memory-bank/active.md"]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "Start with repository guidance",
+      "description": "Read the root agent guidance and README to understand the repository's current non-implemented status.",
+      "nodeIds": ["document:AGENTS.md", "document:README.md"]
+    },
+    {
+      "order": 2,
+      "title": "Read the architecture specification",
+      "description": "The architecture spec is the primary substantive source and defines the intended reference-node boundaries.",
+      "nodeIds": ["document:docs/Nostr_Blockchain_Reference_Node_Architecture.md"]
+    },
+    {
+      "order": 3,
+      "title": "Use local memory only as a summary",
+      "description": "The memory bank is local-only and noncanonical; use it to orient current work, then return to durable sources.",
+      "nodeIds": ["document:.kilocode/rules/memory-bank/brief.md", "document:.kilocode/rules/memory-bank/context.md", "document:.kilocode/rules/memory-bank/active.md"]
+    }
+  ]
+}
+

@@ -1,0 +1,9 @@
+{
+  "lastAnalyzedAt": "2026-08-09T11:47:15.022Z",
+  "gitCommitHash": "UNVERIFIED",
+  "version": "1.0.0",
+  "analyzedFiles": 11,
+  "analysisRoute": "direct-installed-skill-fallback",
+  "notes": "Slash-command route was unavailable in this host. Generated understandignore and scan-result via installed understand skill scripts."
+}
+

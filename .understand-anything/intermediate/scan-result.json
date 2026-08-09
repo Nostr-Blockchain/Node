@@ -1,0 +1,85 @@
+{
+  "scriptCompleted": true,
+  "files": [
+    {
+      "path": ".kilocode/rules-architect/AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 5,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules-ask/AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 5,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules-code/AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 6,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules-debug/AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 5,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules/memory-bank/active.md",
+      "language": "markdown",
+      "sizeLines": 3,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules/memory-bank/brief.md",
+      "language": "markdown",
+      "sizeLines": 3,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".kilocode/rules/memory-bank/context.md",
+      "language": "markdown",
+      "sizeLines": 3,
+      "fileCategory": "docs"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 25,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "docs/Nostr_Blockchain_Reference_Node_Architecture.md",
+      "language": "markdown",
+      "sizeLines": 1532,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 0,
+      "fileCategory": "docs"
+    }
+  ],
+  "totalFiles": 11,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "small",
+  "stats": {
+    "filesScanned": 11,
+    "byCategory": {
+      "docs": 10,
+      "code": 1
+    },
+    "byLanguage": {
+      "markdown": 10,
+      "unknown": 1
+    }
+  }
+}
