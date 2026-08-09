@@ -1,0 +1,6 @@
+#*test*
+*.~*
+.kilocode/
+.understand-anything/
+#docs/maintainer-wiki/
+
