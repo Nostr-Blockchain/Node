@@ -1,5 +1,6 @@
 *.~*
 tests/.tmp-*
+*test*
 *node_modules*
 .understand-anything/
 .kilocode/
