@@ -19,6 +19,7 @@ class ChainExecutor {
     cumulativeFixedRewards = 0n;
     cumulativeMinimumBurns = 0n;
     cumulativePriorityFees = 0n;
+    activeCumulativeWork = 0n;
     stateVersion = 0n;
     miningGeneration = 0n;
     constructor(mempool = new mempool_1.Mempool(), initialView = new utxo_view_1.MemoryUtxoView()) {
@@ -35,7 +36,7 @@ class ChainExecutor {
         return this.miningGeneration;
     }
     getUtxoView() {
-        return this.utxoView;
+        return new utxo_view_1.MemoryUtxoView(this.utxoView.snapshot());
     }
     getMempool() {
         return this.mempool;
@@ -81,12 +82,12 @@ class ChainExecutor {
         }
         return view;
     }
-    connectGenesis(blockId) {
+    connectGenesis(blockId, createdAt = 0, requiredTarget = 0n, cumulativeWork = 0n) {
         this.blockIndex.upsert({
             blockId,
             parentId: null,
             height: 0n,
-            cumulativeWork: 0n,
+            cumulativeWork,
             validationState: 'STATE_VALID',
             active: true,
             invalidCode: null
@@ -95,6 +96,10 @@ class ChainExecutor {
             blockId,
             parentId: null,
             height: 0n,
+            createdAt,
+            requiredTarget,
+            blockWork: cumulativeWork,
+            cumulativeWork,
             evaluation: {
                 parsedBlock: { event: { id: blockId, pubkey: '', created_at: 0, kind: 0, tags: [], content: '', sig: '' }, parentId: null, txIds: [], nonce: 0n, isGenesis: true },
                 txEvaluations: [],
@@ -103,11 +108,14 @@ class ChainExecutor {
                 rewardOutput: null,
                 totalMinimumBurn: 0n,
                 totalPriorityFee: 0n,
-                blockRewardAmount: 0n
+                blockRewardAmount: 0n,
+                requiredTarget,
+                blockWork: cumulativeWork
             }
         });
         this.activeTip = blockId;
         this.activeHeight = 0n;
+        this.activeCumulativeWork = cumulativeWork;
     }
     recordStateValidBlock(block) {
         this.connectedBlocks.set(block.blockId, block);
@@ -115,7 +123,7 @@ class ChainExecutor {
             blockId: block.blockId,
             parentId: block.parentId,
             height: block.height,
-            cumulativeWork: block.height,
+            cumulativeWork: block.cumulativeWork,
             validationState: 'STATE_VALID',
             active: false,
             invalidCode: null
@@ -170,6 +178,7 @@ class ChainExecutor {
         }
         this.activeTip = block.parentId;
         this.activeHeight = this.activeHeight > 0n ? this.activeHeight - 1n : 0n;
+        this.activeCumulativeWork = this.blockIndex.get(this.activeTip ?? '')?.cumulativeWork ?? 0n;
     }
     applyConnectedBlock(block) {
         applyBlockOnView(this.utxoView, block);
@@ -180,6 +189,7 @@ class ChainExecutor {
         }
         this.activeTip = block.blockId;
         this.activeHeight = block.height;
+        this.activeCumulativeWork = block.cumulativeWork;
     }
     updateMonetaryTotals(block, direction) {
         if (block.evaluation.rewardOutput === null) {
@@ -215,6 +225,7 @@ class ChainExecutor {
             cumulativeMinimumBurns: this.cumulativeMinimumBurns,
             cumulativePriorityFees: this.cumulativePriorityFees,
             totalSupply: this.cumulativeFixedRewards - this.cumulativeMinimumBurns,
+            activeCumulativeWork: this.activeCumulativeWork,
             utxoDigest: (0, digest_1.computeUtxoDigest)(utxos),
             utxos
         };

@@ -14,8 +14,11 @@ const pow_1 = require("./pow");
 exports.CONFORMANCE_GENESIS_PARAMS = {
     protocolVersion: 0,
     blockReward: 5000000000n,
-    rewardMaturity: 10,
-    powDifficulty: 8,
+    rewardMaturity: 240,
+    initialPowTarget: BigInt('0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
+    powLimitTarget: BigInt('0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'),
+    targetBlockInterval: 15,
+    asertHalfLife: 4_320,
     baseFee: 1000n,
     inputFee: 250n,
     outputFee: 500n,
@@ -28,8 +31,11 @@ function encodeGenesisContent(params) {
     const bytes = Buffer.concat([
         Buffer.from([params.protocolVersion]),
         (0, primitives_1.encodeU128)(params.blockReward),
-        Buffer.from([(params.rewardMaturity >>> 24) & 0xff, (params.rewardMaturity >>> 16) & 0xff, (params.rewardMaturity >>> 8) & 0xff, params.rewardMaturity & 0xff]),
-        Buffer.from([params.powDifficulty]),
+        (0, primitives_1.encodeU32)(params.rewardMaturity),
+        (0, primitives_1.encodeU256)(params.initialPowTarget),
+        (0, primitives_1.encodeU256)(params.powLimitTarget),
+        (0, primitives_1.encodeU32)(params.targetBlockInterval),
+        (0, primitives_1.encodeU32)(params.asertHalfLife),
         (0, primitives_1.encodeU128)(params.baseFee),
         (0, primitives_1.encodeU128)(params.inputFee),
         (0, primitives_1.encodeU128)(params.outputFee),
@@ -40,18 +46,21 @@ function encodeGenesisContent(params) {
     return bytes.toString('hex');
 }
 function decodeGenesisContent(contentHex) {
-    const bytes = (0, primitives_1.hexToBytes)(contentHex, 76);
+    const bytes = (0, primitives_1.hexToBytes)(contentHex, 147);
     const params = {
         protocolVersion: bytes[0] ?? 0,
         blockReward: (0, primitives_1.decodeU128)(bytes, 1),
         rewardMaturity: (0, primitives_1.decodeU32)(bytes, 17),
-        powDifficulty: bytes[21] ?? 0,
-        baseFee: (0, primitives_1.decodeU128)(bytes, 22),
-        inputFee: (0, primitives_1.decodeU128)(bytes, 38),
-        outputFee: (0, primitives_1.decodeU128)(bytes, 54),
-        maxTxInputs: (0, primitives_1.decodeU16)(bytes, 70),
-        maxTxOutputs: (0, primitives_1.decodeU16)(bytes, 72),
-        maxBlockTransactions: (0, primitives_1.decodeU16)(bytes, 74)
+        initialPowTarget: (0, primitives_1.decodeU256)(bytes, 21),
+        powLimitTarget: (0, primitives_1.decodeU256)(bytes, 53),
+        targetBlockInterval: (0, primitives_1.decodeU32)(bytes, 85),
+        asertHalfLife: (0, primitives_1.decodeU32)(bytes, 89),
+        baseFee: (0, primitives_1.decodeU128)(bytes, 93),
+        inputFee: (0, primitives_1.decodeU128)(bytes, 109),
+        outputFee: (0, primitives_1.decodeU128)(bytes, 125),
+        maxTxInputs: (0, primitives_1.decodeU16)(bytes, 141),
+        maxTxOutputs: (0, primitives_1.decodeU16)(bytes, 143),
+        maxBlockTransactions: (0, primitives_1.decodeU16)(bytes, 145)
     };
     validateGenesisParams(params);
     return params;
@@ -60,7 +69,10 @@ function validateGenesisParams(params) {
     (0, errors_1.assertConsensus)(params.protocolVersion === constants_1.PROTOCOL_VERSION, 'BLK_BAD_CONTENT');
     (0, errors_1.assertConsensus)(params.blockReward > 0n, 'BLK_BAD_CONTENT');
     (0, errors_1.assertConsensus)(params.rewardMaturity >= 1, 'BLK_BAD_CONTENT');
-    (0, errors_1.assertConsensus)(params.powDifficulty >= 1 && params.powDifficulty <= 255, 'BLK_BAD_CONTENT');
+    (0, errors_1.assertConsensus)(params.initialPowTarget > 0n, 'BLK_BAD_CONTENT');
+    (0, errors_1.assertConsensus)(params.initialPowTarget <= params.powLimitTarget, 'BLK_BAD_CONTENT');
+    (0, errors_1.assertConsensus)(params.targetBlockInterval >= 5 && params.targetBlockInterval <= 600, 'BLK_BAD_CONTENT');
+    (0, errors_1.assertConsensus)(params.asertHalfLife >= params.targetBlockInterval * 32, 'BLK_BAD_CONTENT');
     (0, errors_1.assertConsensus)(params.baseFee > 0n, 'BLK_BAD_CONTENT');
     (0, errors_1.assertConsensus)(params.maxTxInputs >= 1 && params.maxTxInputs <= constants_1.MAX_TX_INPUTS_ABSOLUTE, 'BLK_BAD_CONTENT');
     (0, errors_1.assertConsensus)(params.maxTxOutputs >= 1 && params.maxTxOutputs <= constants_1.MAX_TX_OUTPUTS_ABSOLUTE, 'BLK_BAD_CONTENT');
@@ -78,7 +90,7 @@ function validateGenesisEvent(event, cryptoProvider) {
         chainId: (0, primitives_1.hexToBytes)(event.id, 32),
         parentId: Buffer.alloc(32, 0),
         eventId: (0, primitives_1.hexToBytes)(event.id, 32),
-        powDifficulty: params.powDifficulty,
+        requiredTarget: params.initialPowTarget,
         nonceGateBits: Number(event.tags[1][2])
     });
     (0, errors_1.assertConsensus)(powValid, 'BLK_INSUFFICIENT_POW');

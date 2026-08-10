@@ -82,6 +82,20 @@ export function encodeU128(value: bigint): Buffer {
   return bytes;
 }
 
+export function encodeU256(value: bigint): Buffer {
+  if (value < 0n || value >= (1n << 256n)) {
+    throw new ConsensusError('BAD_U256');
+  }
+
+  const bytes = Buffer.alloc(32);
+  let remaining = value;
+  for (let index = 31; index >= 0; index -= 1) {
+    bytes[index] = Number(remaining & 0xffn);
+    remaining >>= 8n;
+  }
+  return bytes;
+}
+
 export function encodeU136(value: bigint): Buffer {
   if (value < 0n || value >= (1n << 136n)) {
     throw new ConsensusError('BAD_U136');
@@ -132,6 +146,14 @@ export function decodeU136(bytes: Uint8Array): bigint {
   return value;
 }
 
+export function decodeU256(bytes: Uint8Array, offset = 0): bigint {
+  let value = 0n;
+  for (let index = offset; index < offset + 32; index += 1) {
+    value = (value << 8n) | BigInt(bytes[index] ?? 0);
+  }
+  return value;
+}
+
 export function compareBytes(left: Uint8Array, right: Uint8Array): number {
   return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
@@ -165,6 +187,13 @@ export function parseCanonicalDecimalU64(text: string): bigint {
     throw new ConsensusError('BAD_DECIMAL');
   }
   return value;
+}
+
+export function truncDivTowardZero(dividend: bigint, divisor: bigint): bigint {
+  if (divisor === 0n) {
+    throw new ConsensusError('BAD_DIVISION');
+  }
+  return dividend / divisor;
 }
 
 export function outpointKey(sourceId: Uint8Array, outputIndex: number): string {

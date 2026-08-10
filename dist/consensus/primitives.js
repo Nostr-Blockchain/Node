@@ -8,6 +8,7 @@ exports.encodeU16 = encodeU16;
 exports.encodeU32 = encodeU32;
 exports.encodeU64 = encodeU64;
 exports.encodeU128 = encodeU128;
+exports.encodeU256 = encodeU256;
 exports.encodeU136 = encodeU136;
 exports.decodeU16 = decodeU16;
 exports.decodeU32 = decodeU32;
@@ -15,9 +16,11 @@ exports.decodeU32LE = decodeU32LE;
 exports.decodeU64 = decodeU64;
 exports.decodeU128 = decodeU128;
 exports.decodeU136 = decodeU136;
+exports.decodeU256 = decodeU256;
 exports.compareBytes = compareBytes;
 exports.leadingZeroBits = leadingZeroBits;
 exports.parseCanonicalDecimalU64 = parseCanonicalDecimalU64;
+exports.truncDivTowardZero = truncDivTowardZero;
 exports.outpointKey = outpointKey;
 exports.sortOutpointsCanonical = sortOutpointsCanonical;
 const node_crypto_1 = require("node:crypto");
@@ -76,6 +79,18 @@ function encodeU128(value) {
     }
     return bytes;
 }
+function encodeU256(value) {
+    if (value < 0n || value >= (1n << 256n)) {
+        throw new errors_1.ConsensusError('BAD_U256');
+    }
+    const bytes = Buffer.alloc(32);
+    let remaining = value;
+    for (let index = 31; index >= 0; index -= 1) {
+        bytes[index] = Number(remaining & 0xffn);
+        remaining >>= 8n;
+    }
+    return bytes;
+}
 function encodeU136(value) {
     if (value < 0n || value >= (1n << 136n)) {
         throw new errors_1.ConsensusError('BAD_U136');
@@ -118,6 +133,13 @@ function decodeU136(bytes) {
     }
     return value;
 }
+function decodeU256(bytes, offset = 0) {
+    let value = 0n;
+    for (let index = offset; index < offset + 32; index += 1) {
+        value = (value << 8n) | BigInt(bytes[index] ?? 0);
+    }
+    return value;
+}
 function compareBytes(left, right) {
     return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
@@ -148,6 +170,12 @@ function parseCanonicalDecimalU64(text) {
         throw new errors_1.ConsensusError('BAD_DECIMAL');
     }
     return value;
+}
+function truncDivTowardZero(dividend, divisor) {
+    if (divisor === 0n) {
+        throw new errors_1.ConsensusError('BAD_DIVISION');
+    }
+    return dividend / divisor;
 }
 function outpointKey(sourceId, outputIndex) {
     return `${bytesToHex(sourceId)}:${outputIndex}`;

@@ -2,6 +2,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildSignedTransactionEvent = buildSignedTransactionEvent;
+exports.selectSpendableUtxos = selectSpendableUtxos;
+exports.buildPaymentPlan = buildPaymentPlan;
 const node_crypto_1 = require("node:crypto");
 const noble_provider_1 = require("../crypto/noble-provider");
 const primitives_1 = require("../consensus/primitives");
@@ -28,6 +30,33 @@ function buildSignedTransactionEvent(secretHex, chainIdHex, createdAt, data) {
         ...unsigned,
         id,
         sig: (0, primitives_1.bytesToHex)(provider.signSchnorr(secret, Buffer.from(id, 'hex')))
+    };
+}
+function selectSpendableUtxos(utxos, candidateHeight, rewardMaturity) {
+    return utxos.filter((utxo) => !utxo.isReward || candidateHeight - utxo.createdHeight >= BigInt(rewardMaturity));
+}
+function buildPaymentPlan(utxos, params, candidateHeight, sendAmount, priorityFee) {
+    const spendableUtxos = selectSpendableUtxos(utxos, candidateHeight, params.rewardMaturity).sort((left, right) => left.amount < right.amount ? -1 : 1);
+    const selectedUtxos = [];
+    let selectedAmount = 0n;
+    const minimumBurn = params.baseFee + params.inputFee + (params.outputFee * 2n);
+    const totalRequired = sendAmount + minimumBurn + priorityFee;
+    for (const utxo of spendableUtxos) {
+        selectedUtxos.push(utxo);
+        selectedAmount += utxo.amount;
+        if (selectedAmount >= totalRequired) {
+            break;
+        }
+    }
+    if (selectedAmount < totalRequired) {
+        throw new Error('insufficient spendable funds');
+    }
+    return {
+        selectedUtxos,
+        minimumBurn,
+        priorityFee,
+        changeAmount: selectedAmount - totalRequired,
+        sendAmount
     };
 }
 function main() {

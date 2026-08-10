@@ -52,6 +52,7 @@ export class NodeStore {
     this.setMetaText('cumulative_fixed_rewards', '0');
     this.setMetaText('cumulative_minimum_burns', '0');
     this.setMetaText('cumulative_priority_fees', '0');
+    this.setMetaText('active_cumulative_work', '0');
     if (this.getMetaText('next_received_seq') === null) {
       this.setMetaText('next_received_seq', '1');
     }
@@ -98,14 +99,16 @@ export class NodeStore {
 
   public persistBlockStructure(parsed: ParsedBlock, validationState: string, height: bigint | null, invalidCode: string | null): void {
     this.connection.prepare(
-      'INSERT OR REPLACE INTO blocks(block_id, parent_id, miner_pubkey, height, nonce_be8, difficulty, validation_state, invalid_code, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT active FROM blocks WHERE block_id = ?), 0))'
+      'INSERT OR REPLACE INTO blocks(block_id, parent_id, miner_pubkey, height, nonce_be8, required_target, block_work_dec, cumulative_work_dec, validation_state, invalid_code, active) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT required_target FROM blocks WHERE block_id = ?), NULL), COALESCE((SELECT block_work_dec FROM blocks WHERE block_id = ?), NULL), COALESCE((SELECT cumulative_work_dec FROM blocks WHERE block_id = ?), NULL), ?, ?, COALESCE((SELECT active FROM blocks WHERE block_id = ?), 0))'
     ).run(
       Buffer.from(parsed.event.id, 'hex'),
       parsed.parentId === null ? null : Buffer.from(parsed.parentId),
       Buffer.from(parsed.event.pubkey, 'hex'),
       height === null ? null : Number(height),
       encodeU64(parsed.nonce),
-      6,
+      Buffer.from(parsed.event.id, 'hex'),
+      Buffer.from(parsed.event.id, 'hex'),
+      Buffer.from(parsed.event.id, 'hex'),
       validationState,
       invalidCode,
       Buffer.from(parsed.event.id, 'hex')
@@ -176,6 +179,7 @@ export class NodeStore {
       this.setMetaText('cumulative_fixed_rewards', snapshot.cumulativeFixedRewards.toString(10));
       this.setMetaText('cumulative_minimum_burns', snapshot.cumulativeMinimumBurns.toString(10));
       this.setMetaText('cumulative_priority_fees', snapshot.cumulativePriorityFees.toString(10));
+      this.setMetaText('active_cumulative_work', snapshot.activeCumulativeWork.toString(10));
     });
 
     transaction();
@@ -214,6 +218,7 @@ export class NodeStore {
     this.setMetaText('cumulative_fixed_rewards', '0');
     this.setMetaText('cumulative_minimum_burns', '0');
     this.setMetaText('cumulative_priority_fees', '0');
+    this.setMetaText('active_cumulative_work', '0');
   }
 
   public verifyIntegrity(): string {

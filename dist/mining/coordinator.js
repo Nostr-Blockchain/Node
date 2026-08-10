@@ -4,6 +4,7 @@ exports.MiningCoordinator = void 0;
 const nip01_1 = require("../consensus/nip01");
 const block_codec_1 = require("../consensus/block-codec");
 const worker_1 = require("./worker");
+const difficulty_1 = require("../consensus/difficulty");
 class MiningCoordinator {
     enabled;
     mode;
@@ -28,7 +29,8 @@ class MiningCoordinator {
         this.enabled = mode !== 'disabled';
         this.generation += 1n;
     }
-    mineOne(parentIdHex, chainIdHex, params, signer, txIds, createdAt = Math.floor(Date.now() / 1000)) {
+    buildUnsignedWinningBlock(parentIdHex, chainIdHex, params, signer, txIds, genesisCreatedAt, parentCreatedAt, candidateHeight, createdAt = Math.floor(Date.now() / 1000)) {
+        const requiredTarget = (0, difficulty_1.computeRequiredTarget)(params, genesisCreatedAt, parentCreatedAt, candidateHeight);
         let nonce = 0n;
         for (;;) {
             const event = {
@@ -39,12 +41,11 @@ class MiningCoordinator {
                 content: '00'
             };
             const eventIdHex = (0, nip01_1.computeEventId)(event);
-            const result = (0, worker_1.evaluateCandidatePow)({ chainIdHex, parentIdHex, eventIdHex, powDifficulty: params.powDifficulty });
+            const result = (0, worker_1.evaluateCandidatePow)({ chainIdHex, parentIdHex, eventIdHex, requiredTarget });
             if (result.success) {
                 return {
                     ...event,
-                    id: eventIdHex,
-                    sig: signer.signEventId(eventIdHex)
+                    id: eventIdHex
                 };
             }
             nonce += 1n;

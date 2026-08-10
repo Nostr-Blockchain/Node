@@ -24,7 +24,7 @@ export function buildBlockTags(chainIdHex: string, parentIdHex: string, txIdsHex
 export function parseBlockEvent(event: NostrEvent, chainIdHex?: string): ParsedBlock {
   assertConsensus(event.kind === BLOCK_KIND, 'BLK_BAD_KIND');
   if (event.tags.length === 2 && event.tags[0]?.[0] === 't' && event.tags[0]?.[1] === GENESIS_SCOPE) {
-    assertConsensus(event.content.length === 76 * 2, 'BLK_BAD_CONTENT');
+    assertConsensus(event.content.length === 147 * 2, 'BLK_BAD_CONTENT');
     const nonceTag = event.tags[1] ?? [];
     assertConsensus(nonceTag.length === 3 && nonceTag[0] === 'nonce' && nonceTag[2] === NIP13_GATE_BITS.toString(10), 'BLK_BAD_NONCE');
     return {

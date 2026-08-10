@@ -1,5 +1,5 @@
-import { REWARD_OUTPUT_INDEX } from './constants';
-import { ConsensusError, assertConsensus } from './errors';
+import { MAX_U128, REWARD_OUTPUT_INDEX } from './constants';
+import { assertConsensus } from './errors';
 import { GenesisParams, decodeGenesisContent } from './genesis';
 import { NostrEvent } from './nip01';
 import { UtxoRecord, compareBytes, hexToBytes } from './primitives';
@@ -9,6 +9,13 @@ import { TxEvaluation, validateParsedTransaction } from './transaction-validatio
 import { ParsedTransaction } from './transaction-codec';
 import { UtxoView } from '../state/utxo-view';
 import { CryptoProvider } from '../crypto/provider';
+import { computeBlockWork } from './difficulty';
+
+export interface BlockValidationContext {
+  medianTimePast: number;
+  localTime: number;
+  requiredTarget: bigint;
+}
 
 export interface BlockEvaluation {
   parsedBlock: ParsedBlock;
@@ -19,6 +26,8 @@ export interface BlockEvaluation {
   totalMinimumBurn: bigint;
   totalPriorityFee: bigint;
   blockRewardAmount: bigint;
+  requiredTarget: bigint;
+  blockWork: bigint;
 }
 
 export function validateGenesisBlock(event: NostrEvent): GenesisParams {
@@ -35,13 +44,16 @@ export function validateBlock(
   params: GenesisParams,
   transactions: readonly ParsedTransaction[],
   view: UtxoView,
-  cryptoProvider: CryptoProvider
+  cryptoProvider: CryptoProvider,
+  context: BlockValidationContext
 ): BlockEvaluation {
   const parsedBlock = parseBlockEvent(event, chainIdHex);
   assertConsensus(!parsedBlock.isGenesis, 'BLK_BAD_PARENT');
   assertConsensus(compareBytes(parsedBlock.parentId!, parentId) === 0, 'BLK_BAD_PARENT');
   assertConsensus(parsedBlock.txIds.length <= params.maxBlockTransactions, 'BLK_BAD_TAGS');
   assertConsensus(transactions.length === parsedBlock.txIds.length, 'BLK_TX_DATA_MISSING');
+  assertConsensus(event.created_at > context.medianTimePast, 'BLK_TIME_TOO_OLD');
+  assertConsensus(event.created_at <= context.localTime + 120, 'BLK_TIME_FUTURE');
   for (let index = 0; index < transactions.length; index += 1) {
     assertConsensus(compareBytes(hexToBytes(transactions[index]!.event.id, 32), parsedBlock.txIds[index]!) === 0, 'BLK_TX_INVALID');
   }
@@ -49,7 +61,7 @@ export function validateBlock(
     chainId: hexToBytes(chainIdHex, 32),
     parentId,
     eventId: hexToBytes(event.id, 32),
-    powDifficulty: params.powDifficulty,
+    requiredTarget: context.requiredTarget,
     nonceGateBits: Number(parsedBlock.event.tags[parsedBlock.event.tags.length - 1]![2])
   });
   assertConsensus(powValid, 'BLK_INSUFFICIENT_POW');
@@ -67,6 +79,7 @@ export function validateBlock(
   const totalMinimumBurn = txEvaluations.reduce((sum, evaluation) => sum + evaluation.minimumBurn, 0n);
   const totalPriorityFee = txEvaluations.reduce((sum, evaluation) => sum + evaluation.priorityFee, 0n);
   const blockRewardAmount = params.blockReward + totalPriorityFee;
+  assertConsensus(blockRewardAmount <= MAX_U128, 'BLK_REWARD_OVERFLOW');
   const rewardOutput: UtxoRecord = {
     sourceId: Buffer.from(event.id, 'hex'),
     outputIndex: REWARD_OUTPUT_INDEX,
@@ -84,6 +97,8 @@ export function validateBlock(
     rewardOutput,
     totalMinimumBurn,
     totalPriorityFee,
-    blockRewardAmount
+    blockRewardAmount,
+    requiredTarget: context.requiredTarget,
+    blockWork: computeBlockWork(context.requiredTarget)
   };
 }

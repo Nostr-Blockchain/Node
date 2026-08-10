@@ -9,17 +9,20 @@ const primitives_1 = require("./primitives");
 const block_codec_1 = require("./block-codec");
 const pow_1 = require("./pow");
 const transaction_validation_1 = require("./transaction-validation");
+const difficulty_1 = require("./difficulty");
 function validateGenesisBlock(event) {
     const parsed = (0, block_codec_1.parseBlockEvent)(event);
     (0, errors_1.assertConsensus)(parsed.isGenesis, 'BLK_BAD_PARENT');
     return (0, genesis_1.decodeGenesisContent)(event.content);
 }
-function validateBlock(event, chainIdHex, parentId, candidateHeight, params, transactions, view, cryptoProvider) {
+function validateBlock(event, chainIdHex, parentId, candidateHeight, params, transactions, view, cryptoProvider, context) {
     const parsedBlock = (0, block_codec_1.parseBlockEvent)(event, chainIdHex);
     (0, errors_1.assertConsensus)(!parsedBlock.isGenesis, 'BLK_BAD_PARENT');
     (0, errors_1.assertConsensus)((0, primitives_1.compareBytes)(parsedBlock.parentId, parentId) === 0, 'BLK_BAD_PARENT');
     (0, errors_1.assertConsensus)(parsedBlock.txIds.length <= params.maxBlockTransactions, 'BLK_BAD_TAGS');
     (0, errors_1.assertConsensus)(transactions.length === parsedBlock.txIds.length, 'BLK_TX_DATA_MISSING');
+    (0, errors_1.assertConsensus)(event.created_at > context.medianTimePast, 'BLK_TIME_TOO_OLD');
+    (0, errors_1.assertConsensus)(event.created_at <= context.localTime + 120, 'BLK_TIME_FUTURE');
     for (let index = 0; index < transactions.length; index += 1) {
         (0, errors_1.assertConsensus)((0, primitives_1.compareBytes)((0, primitives_1.hexToBytes)(transactions[index].event.id, 32), parsedBlock.txIds[index]) === 0, 'BLK_TX_INVALID');
     }
@@ -27,7 +30,7 @@ function validateBlock(event, chainIdHex, parentId, candidateHeight, params, tra
         chainId: (0, primitives_1.hexToBytes)(chainIdHex, 32),
         parentId,
         eventId: (0, primitives_1.hexToBytes)(event.id, 32),
-        powDifficulty: params.powDifficulty,
+        requiredTarget: context.requiredTarget,
         nonceGateBits: Number(parsedBlock.event.tags[parsedBlock.event.tags.length - 1][2])
     });
     (0, errors_1.assertConsensus)(powValid, 'BLK_INSUFFICIENT_POW');
@@ -43,6 +46,7 @@ function validateBlock(event, chainIdHex, parentId, candidateHeight, params, tra
     const totalMinimumBurn = txEvaluations.reduce((sum, evaluation) => sum + evaluation.minimumBurn, 0n);
     const totalPriorityFee = txEvaluations.reduce((sum, evaluation) => sum + evaluation.priorityFee, 0n);
     const blockRewardAmount = params.blockReward + totalPriorityFee;
+    (0, errors_1.assertConsensus)(blockRewardAmount <= constants_1.MAX_U128, 'BLK_REWARD_OVERFLOW');
     const rewardOutput = {
         sourceId: Buffer.from(event.id, 'hex'),
         outputIndex: constants_1.REWARD_OUTPUT_INDEX,
@@ -59,6 +63,8 @@ function validateBlock(event, chainIdHex, parentId, candidateHeight, params, tra
         rewardOutput,
         totalMinimumBurn,
         totalPriorityFee,
-        blockRewardAmount
+        blockRewardAmount,
+        requiredTarget: context.requiredTarget,
+        blockWork: (0, difficulty_1.computeBlockWork)(context.requiredTarget)
     };
 }

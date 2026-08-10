@@ -7,6 +7,7 @@ exports.NodeRuntime = void 0;
 const node_fs_1 = __importDefault(require("node:fs"));
 const noble_provider_1 = require("../crypto/noble-provider");
 const constants_1 = require("../consensus/constants");
+const errors_1 = require("../consensus/errors");
 const genesis_1 = require("../consensus/genesis");
 const nip01_1 = require("../consensus/nip01");
 const chain_executor_1 = require("../chain/chain-executor");
@@ -22,6 +23,7 @@ const transaction_validation_1 = require("../consensus/transaction-validation");
 const block_codec_1 = require("../consensus/block-codec");
 const node_store_1 = require("../storage/node-store");
 const selection_1 = require("../mempool/selection");
+const difficulty_1 = require("../consensus/difficulty");
 class NodeRuntime {
     config;
     lifecycle = new lifecycle_1.NodeLifecycle();
@@ -38,6 +40,7 @@ class NodeRuntime {
     eventSequences = new Map();
     parsedTransactions = new Map();
     pendingBlockIds = new Set();
+    invalidEventCodes = new Map();
     constructor(config, signerSecretHex = null) {
         this.config = config;
         this.store = new node_store_1.NodeStore(config.databasePath);
@@ -64,10 +67,11 @@ class NodeRuntime {
         const validatedGenesis = (0, nip01_1.validateNip01Event)(genesisEvent, constants_1.BLOCK_KIND, this.cryptoProvider, 'BLK');
         this.chainIdHex = validatedGenesis.id;
         this.genesisParams = (0, genesis_1.validateGenesisEvent)(validatedGenesis, this.cryptoProvider);
+        const genesisWork = (0, difficulty_1.computeBlockWork)(this.genesisParams.initialPowTarget);
         const existingChainId = this.store.getMetaText('chain_id');
         if (existingChainId === null || existingChainId.length === 0) {
             this.chainExecutor = new chain_executor_1.ChainExecutor();
-            this.chainExecutor.connectGenesis(validatedGenesis.id);
+            this.chainExecutor.connectGenesis(validatedGenesis.id, validatedGenesis.created_at, this.genesisParams.initialPowTarget, genesisWork);
             this.store.initializeChain(validatedGenesis.id, this.genesisParams.protocolVersion);
             const receivedSeq = this.store.nextReceivedSeq();
             this.store.persistEvent(validatedGenesis, 'nostr-blockchain:genesis', 'STRUCTURAL_VALID', null, receivedSeq);
@@ -113,7 +117,16 @@ class NodeRuntime {
         };
     }
     receiveEvent(event) {
-        this.acceptEvent(event, true);
+        try {
+            this.acceptEvent(event, true);
+        }
+        catch (error) {
+            if (error instanceof errors_1.ConsensusError) {
+                this.recordInvalidIncomingEvent(event, error);
+                return;
+            }
+            throw error;
+        }
     }
     queryEvents(filters) {
         const events = [...this.storedEvents.values()];
@@ -151,8 +164,16 @@ class NodeRuntime {
         if (parentIdHex === null) {
             throw new Error('missing active tip');
         }
+        const parentBlock = this.chainExecutor.getConnectedBlock(parentIdHex);
+        if (parentBlock === null) {
+            throw new Error('missing parent block');
+        }
         const selectedTxIds = (0, selection_1.selectTransactionsForBlock)(parentIdHex, this.chainExecutor.getMempool().values(), this.genesisParams).map((entry) => entry.txId);
-        const event = this.miningCoordinator.mineOne(parentIdHex, this.chainIdHex, this.genesisParams, this.signer, selectedTxIds, createdAt);
+        const unsignedWinner = this.miningCoordinator.buildUnsignedWinningBlock(parentIdHex, this.chainIdHex, this.genesisParams, this.signer, selectedTxIds, this.getGenesisCreatedAt(), parentBlock.createdAt, parentBlock.height + 1n, createdAt);
+        const event = {
+            ...unsignedWinner,
+            sig: this.signer.signEventId(unsignedWinner.id)
+        };
         this.acceptEvent(event, true);
         return event;
     }
@@ -171,6 +192,9 @@ class NodeRuntime {
     getBalance(pubkeyHex) {
         return this.chainExecutor.getUtxoView().listUtxosByOwner(Buffer.from(pubkeyHex, 'hex')).reduce((sum, utxo) => sum + utxo.amount, 0n);
     }
+    getInvalidEventCodes() {
+        return this.invalidEventCodes;
+    }
     getMempoolTransactions() {
         return this.chainExecutor.getMempool().values().map((entry) => entry.txId);
     }
@@ -180,7 +204,7 @@ class NodeRuntime {
         const current = this.chainExecutor.snapshot();
         return {
             integrity,
-            matchesReplay: integrity === 'ok' && replay.snapshot.utxoDigest === current.utxoDigest && replay.snapshot.activeTip === current.activeTip,
+            matchesReplay: integrity === 'ok' && replay.snapshot.utxoDigest === current.utxoDigest && replay.snapshot.activeTip === current.activeTip && replay.snapshot.activeCumulativeWork === current.activeCumulativeWork,
             activeTip: current.activeTip,
             stateHash: current.utxoDigest
         };
@@ -207,7 +231,7 @@ class NodeRuntime {
         const runtime = new NodeRuntime({ ...this.config, relays: [], embeddedRelayPort: null, databasePath: `${this.config.databasePath}.replay` }, this.signer === null ? null : '01'.repeat(32));
         runtime.chainIdHex = this.chainIdHex;
         runtime.genesisParams = this.genesisParams;
-        runtime.chainExecutor.connectGenesis(genesis.id);
+        runtime.chainExecutor.connectGenesis(genesis.id, genesis.created_at, this.genesisParams.initialPowTarget, (0, difficulty_1.computeBlockWork)(this.genesisParams.initialPowTarget));
         runtime.storedEvents.set(genesis.id, genesis);
         for (const event of events) {
             if (event.id === genesis.id) {
@@ -231,7 +255,7 @@ class NodeRuntime {
     }
     reindexFromStore(genesisEvent) {
         this.chainExecutor = new chain_executor_1.ChainExecutor();
-        this.chainExecutor.connectGenesis(genesisEvent.id);
+        this.chainExecutor.connectGenesis(genesisEvent.id, genesisEvent.created_at, this.genesisParams.initialPowTarget, (0, difficulty_1.computeBlockWork)(this.genesisParams.initialPowTarget));
         this.storedEvents.clear();
         this.eventSequences.clear();
         this.parsedTransactions.clear();
@@ -306,13 +330,19 @@ class NodeRuntime {
             this.persistRuntimeState();
         }
     }
+    recordInvalidIncomingEvent(event, error) {
+        this.invalidEventCodes.set(event.id, error.code);
+    }
     tryAddToMempool(parsed, receivedSeq) {
         try {
             const evaluation = this.validateAgainstActiveView(parsed);
             this.chainExecutor.getMempool().add({ txId: parsed.event.id, transaction: parsed, evaluation, receivedSeq });
             return true;
         }
-        catch {
+        catch (error) {
+            if (error instanceof Error) {
+                this.invalidEventCodes.set(parsed.event.id, error.message);
+            }
             return false;
         }
     }
@@ -321,6 +351,15 @@ class NodeRuntime {
         const parentIdHex = Buffer.from(parsedBlock.parentId).toString('hex');
         const parentEntry = this.chainExecutor.getBlockIndexEntry(parentIdHex);
         if (parentEntry === null || parentEntry.height === null) {
+            return false;
+        }
+        const parentBlock = this.chainExecutor.getConnectedBlock(parentIdHex);
+        if (parentBlock === null) {
+            return false;
+        }
+        const medianTimePast = this.computeMedianTimePast(parentIdHex);
+        const localTime = Math.floor(Date.now() / 1000);
+        if (event.created_at > localTime + 120) {
             return false;
         }
         const transactions = [];
@@ -334,11 +373,21 @@ class NodeRuntime {
         }
         const parentView = this.chainExecutor.buildViewForParent(parentIdHex);
         const candidateHeight = parentEntry.height + 1n;
-        const evaluation = (0, block_validation_1.validateBlock)(event, this.chainIdHex, Buffer.from(parentIdHex, 'hex'), candidateHeight, this.genesisParams, transactions, parentView, this.cryptoProvider);
+        const requiredTarget = (0, difficulty_1.computeRequiredTarget)(this.genesisParams, this.getGenesisCreatedAt(), parentBlock.createdAt, candidateHeight);
+        const evaluation = (0, block_validation_1.validateBlock)(event, this.chainIdHex, Buffer.from(parentIdHex, 'hex'), candidateHeight, this.genesisParams, transactions, parentView, this.cryptoProvider, {
+            medianTimePast,
+            localTime,
+            requiredTarget
+        });
+        const parentCumulativeWork = parentEntry.cumulativeWork ?? 0n;
         const connectedBlock = {
             blockId: event.id,
             parentId: parentIdHex,
             height: candidateHeight,
+            createdAt: event.created_at,
+            requiredTarget,
+            blockWork: evaluation.blockWork,
+            cumulativeWork: parentCumulativeWork + evaluation.blockWork,
             evaluation
         };
         this.chainExecutor.recordStateValidBlock(connectedBlock);
@@ -381,6 +430,30 @@ class NodeRuntime {
     }
     validateAgainstActiveView(parsed) {
         return (0, transaction_validation_1.validateParsedTransaction)(parsed, this.chainExecutor.getActiveHeight() + 1n, this.genesisParams, this.cryptoProvider, this.chainExecutor.getUtxoView());
+    }
+    getGenesisCreatedAt() {
+        if (this.chainIdHex === null) {
+            throw new Error('runtime not started');
+        }
+        const genesis = this.storedEvents.get(this.chainIdHex);
+        if (genesis === undefined) {
+            throw new Error('missing genesis');
+        }
+        return genesis.created_at;
+    }
+    computeMedianTimePast(parentIdHex) {
+        const timestamps = [];
+        let cursor = parentIdHex;
+        while (cursor !== null && timestamps.length < 11) {
+            const block = this.chainExecutor.getConnectedBlock(cursor);
+            if (block === null) {
+                break;
+            }
+            timestamps.push(block.createdAt);
+            cursor = block.parentId;
+        }
+        timestamps.sort((left, right) => left - right);
+        return timestamps[(timestamps.length - 1) >> 1] ?? 0;
     }
     isActiveTipTransaction(txId) {
         const activeTip = this.chainExecutor.getActiveTip();

@@ -17,7 +17,7 @@ function buildBlockTags(chainIdHex, parentIdHex, txIdsHex, nonce) {
 function parseBlockEvent(event, chainIdHex) {
     (0, errors_1.assertConsensus)(event.kind === constants_1.BLOCK_KIND, 'BLK_BAD_KIND');
     if (event.tags.length === 2 && event.tags[0]?.[0] === 't' && event.tags[0]?.[1] === constants_1.GENESIS_SCOPE) {
-        (0, errors_1.assertConsensus)(event.content.length === 76 * 2, 'BLK_BAD_CONTENT');
+        (0, errors_1.assertConsensus)(event.content.length === 147 * 2, 'BLK_BAD_CONTENT');
         const nonceTag = event.tags[1] ?? [];
         (0, errors_1.assertConsensus)(nonceTag.length === 3 && nonceTag[0] === 'nonce' && nonceTag[2] === constants_1.NIP13_GATE_BITS.toString(10), 'BLK_BAD_NONCE');
         return {

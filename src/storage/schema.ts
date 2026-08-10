@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS blocks (
   miner_pubkey      BLOB NOT NULL CHECK(length(miner_pubkey)=32),
   height            INTEGER,
   nonce_be8         BLOB NOT NULL CHECK(length(nonce_be8)=8),
-  difficulty        INTEGER NOT NULL,
+  required_target   BLOB CHECK(required_target IS NULL OR length(required_target)=32),
+  block_work_dec    TEXT,
+  cumulative_work_dec TEXT,
   validation_state  TEXT NOT NULL,
   invalid_code      TEXT,
   active            INTEGER NOT NULL DEFAULT 0 CHECK(active IN (0,1))
@@ -143,5 +145,6 @@ export const REQUIRED_META_KEYS = [
   'cumulative_fixed_rewards',
   'cumulative_minimum_burns',
   'cumulative_priority_fees',
+  'active_cumulative_work',
   'next_received_seq'
 ] as const;

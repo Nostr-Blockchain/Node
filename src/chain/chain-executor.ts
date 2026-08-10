@@ -14,6 +14,10 @@ export interface ConnectedBlock {
   blockId: string;
   parentId: string | null;
   height: bigint;
+  createdAt: number;
+  requiredTarget: bigint;
+  blockWork: bigint;
+  cumulativeWork: bigint;
   evaluation: BlockEvaluation;
 }
 
@@ -24,6 +28,7 @@ export interface ChainStateSnapshot {
   cumulativeMinimumBurns: bigint;
   cumulativePriorityFees: bigint;
   totalSupply: bigint;
+  activeCumulativeWork: bigint;
   utxoDigest: string;
   utxos: UtxoRecord[];
 }
@@ -38,6 +43,7 @@ export class ChainExecutor {
   private cumulativeFixedRewards = 0n;
   private cumulativeMinimumBurns = 0n;
   private cumulativePriorityFees = 0n;
+  private activeCumulativeWork = 0n;
   private stateVersion = 0n;
   private miningGeneration = 0n;
 
@@ -59,7 +65,7 @@ export class ChainExecutor {
   }
 
   public getUtxoView(): MemoryUtxoView {
-    return this.utxoView;
+    return new MemoryUtxoView(this.utxoView.snapshot());
   }
 
   public getMempool(): Mempool {
@@ -116,12 +122,12 @@ export class ChainExecutor {
     return view;
   }
 
-  public connectGenesis(blockId: string): void {
+  public connectGenesis(blockId: string, createdAt = 0, requiredTarget = 0n, cumulativeWork = 0n): void {
     this.blockIndex.upsert({
       blockId,
       parentId: null,
       height: 0n,
-      cumulativeWork: 0n,
+      cumulativeWork,
       validationState: 'STATE_VALID',
       active: true,
       invalidCode: null
@@ -130,6 +136,10 @@ export class ChainExecutor {
       blockId,
       parentId: null,
       height: 0n,
+      createdAt,
+      requiredTarget,
+      blockWork: cumulativeWork,
+      cumulativeWork,
       evaluation: {
         parsedBlock: { event: { id: blockId, pubkey: '', created_at: 0, kind: 0, tags: [], content: '', sig: '' }, parentId: null, txIds: [], nonce: 0n, isGenesis: true },
         txEvaluations: [],
@@ -138,11 +148,14 @@ export class ChainExecutor {
         rewardOutput: null,
         totalMinimumBurn: 0n,
         totalPriorityFee: 0n,
-        blockRewardAmount: 0n
+        blockRewardAmount: 0n,
+        requiredTarget,
+        blockWork: cumulativeWork
       }
     });
     this.activeTip = blockId;
     this.activeHeight = 0n;
+    this.activeCumulativeWork = cumulativeWork;
   }
 
   public recordStateValidBlock(block: ConnectedBlock): void {
@@ -151,7 +164,7 @@ export class ChainExecutor {
       blockId: block.blockId,
       parentId: block.parentId,
       height: block.height,
-      cumulativeWork: block.height,
+      cumulativeWork: block.cumulativeWork,
       validationState: 'STATE_VALID',
       active: false,
       invalidCode: null
@@ -211,6 +224,7 @@ export class ChainExecutor {
     }
     this.activeTip = block.parentId;
     this.activeHeight = this.activeHeight > 0n ? this.activeHeight - 1n : 0n;
+    this.activeCumulativeWork = this.blockIndex.get(this.activeTip ?? '')?.cumulativeWork ?? 0n;
   }
 
   private applyConnectedBlock(block: ConnectedBlock): void {
@@ -222,6 +236,7 @@ export class ChainExecutor {
     }
     this.activeTip = block.blockId;
     this.activeHeight = block.height;
+    this.activeCumulativeWork = block.cumulativeWork;
   }
 
   private updateMonetaryTotals(block: ConnectedBlock, direction: 1n | -1n): void {
@@ -264,6 +279,7 @@ export class ChainExecutor {
       cumulativeMinimumBurns: this.cumulativeMinimumBurns,
       cumulativePriorityFees: this.cumulativePriorityFees,
       totalSupply: this.cumulativeFixedRewards - this.cumulativeMinimumBurns,
+      activeCumulativeWork: this.activeCumulativeWork,
       utxoDigest: computeUtxoDigest(utxos),
       utxos
     };

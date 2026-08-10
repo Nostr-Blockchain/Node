@@ -20,7 +20,7 @@ function evaluateCandidatePow(input) {
             chainId: Buffer.from(input.chainIdHex, 'hex'),
             parentId: Buffer.from(input.parentIdHex, 'hex'),
             eventId: Buffer.from(input.eventIdHex, 'hex'),
-            powDifficulty: input.powDifficulty,
+            requiredTarget: input.requiredTarget,
             nonceGateBits: 6
         })
     };

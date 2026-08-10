@@ -3,6 +3,7 @@ import { GenesisParams } from '../consensus/genesis';
 import { computeEventId, NostrEvent } from '../consensus/nip01';
 import { buildBlockTags } from '../consensus/block-codec';
 import { evaluateCandidatePow } from './worker';
+import { computeRequiredTarget } from '../consensus/difficulty';
 
 export interface MiningCoordinatorStatus {
   enabled: boolean;
@@ -40,7 +41,8 @@ export class MiningCoordinator {
     this.generation += 1n;
   }
 
-  public mineOne(parentIdHex: string, chainIdHex: string, params: GenesisParams, signer: BlockSigner, txIds: string[], createdAt = Math.floor(Date.now() / 1000)): NostrEvent {
+  public buildUnsignedWinningBlock(parentIdHex: string, chainIdHex: string, params: GenesisParams, signer: BlockSigner, txIds: string[], genesisCreatedAt: number, parentCreatedAt: number, candidateHeight: bigint, createdAt = Math.floor(Date.now() / 1000)): Omit<NostrEvent, 'id' | 'sig'> & { id: string } {
+    const requiredTarget = computeRequiredTarget(params, genesisCreatedAt, parentCreatedAt, candidateHeight);
     let nonce = 0n;
     for (;;) {
       const event: Omit<NostrEvent, 'id' | 'sig'> = {
@@ -51,12 +53,11 @@ export class MiningCoordinator {
         content: '00'
       };
       const eventIdHex = computeEventId(event);
-      const result = evaluateCandidatePow({ chainIdHex, parentIdHex, eventIdHex, powDifficulty: params.powDifficulty });
+      const result = evaluateCandidatePow({ chainIdHex, parentIdHex, eventIdHex, requiredTarget });
       if (result.success) {
         return {
           ...event,
-          id: eventIdHex,
-          sig: signer.signEventId(eventIdHex)
+          id: eventIdHex
         };
       }
       nonce += 1n;

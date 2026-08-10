@@ -6,6 +6,23 @@ import { bytesToHex } from '../consensus/primitives';
 import { bech32 } from '@scure/base';
 import { computeEventId, NostrEvent } from '../consensus/nip01';
 import { deriveTransactionTags, encodeTransactionContent, TransactionData } from '../consensus/transaction-codec';
+import { GenesisParams } from '../consensus/genesis';
+
+export interface WalletSpendableUtxo {
+  txid: string;
+  index: number;
+  amount: bigint;
+  createdHeight: bigint;
+  isReward: boolean;
+}
+
+export interface WalletPaymentPlan {
+  selectedUtxos: WalletSpendableUtxo[];
+  minimumBurn: bigint;
+  priorityFee: bigint;
+  changeAmount: bigint;
+  sendAmount: bigint;
+}
 
 function toNpub(pubkeyHex: string): string {
   const words = bech32.toWords(Buffer.from(pubkeyHex, 'hex'));
@@ -28,6 +45,35 @@ export function buildSignedTransactionEvent(secretHex: string, chainIdHex: strin
     ...unsigned,
     id,
     sig: bytesToHex(provider.signSchnorr(secret, Buffer.from(id, 'hex')))
+  };
+}
+
+export function selectSpendableUtxos(utxos: readonly WalletSpendableUtxo[], candidateHeight: bigint, rewardMaturity: number): WalletSpendableUtxo[] {
+  return utxos.filter((utxo) => !utxo.isReward || candidateHeight - utxo.createdHeight >= BigInt(rewardMaturity));
+}
+
+export function buildPaymentPlan(utxos: readonly WalletSpendableUtxo[], params: GenesisParams, candidateHeight: bigint, sendAmount: bigint, priorityFee: bigint): WalletPaymentPlan {
+  const spendableUtxos = selectSpendableUtxos(utxos, candidateHeight, params.rewardMaturity).sort((left, right) => left.amount < right.amount ? -1 : 1);
+  const selectedUtxos: WalletSpendableUtxo[] = [];
+  let selectedAmount = 0n;
+  const minimumBurn = params.baseFee + params.inputFee + (params.outputFee * 2n);
+  const totalRequired = sendAmount + minimumBurn + priorityFee;
+  for (const utxo of spendableUtxos) {
+    selectedUtxos.push(utxo);
+    selectedAmount += utxo.amount;
+    if (selectedAmount >= totalRequired) {
+      break;
+    }
+  }
+  if (selectedAmount < totalRequired) {
+    throw new Error('insufficient spendable funds');
+  }
+  return {
+    selectedUtxos,
+    minimumBurn,
+    priorityFee,
+    changeAmount: selectedAmount - totalRequired,
+    sendAmount
   };
 }
 
