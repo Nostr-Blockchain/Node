@@ -1,12 +1,12 @@
 # Nostr Blockchain
 
-**Experimental minimum-viable permissionless blockchain built on Nostr events.**
+**Specification-first Nostr-native blockchain reference node and protocol repository.**
 
 Nostr Blockchain uses ordinary Nostr signed events as its native transaction and block objects, Nostr relays as its external communication layer, BIP340 x-only public keys as monetary identities, and proof of work to establish an independently verifiable monetary history.
 
-> **Experimental software. Do not treat the network, wallet, keys, coins, mining algorithm, or economic parameters as production-ready or suitable for meaningful real-world value.**
+> **Checked-in code is still a prototype subset.** The repository now carries a final production-network specification, but the implementation and test evidence in this checkout do not yet prove full conformance or mainnet readiness.
 
-The current milestone is a public experimental MVP: anyone should be able to run a full node, independently reconstruct and validate the chain from genesis, mine with a commodity CPU, receive and send native coins, recover from forks and restarts, and determine the objectively greatest-work valid chain without trusting a relay or another node.
+The current documentation milestone is the production-network contract for v0: a standard full node is one process containing consensus, UTXO state, SQLite persistence, mining, signer/wallet control, outbound relay clients, and an embedded restricted archival relay. The current checked-in codebase still represents only a narrower prototype subset of that contract.
 
 ---
 
@@ -46,10 +46,10 @@ Relays transport and store events, but they are not consensus authorities.
 
 ## Current status
 
-Architecture status:
+Repository status:
 
 ```text
-Minimum-viable public-network architecture frozen
+Sprints 1-12 are implemented in code/test scope; final post-simplification full-suite verification is still pending
 ```
 
 Implementation target:
@@ -61,15 +61,54 @@ SQLite
 Nostr WebSocket relays
 ```
 
-The previous fixed-difficulty prototype passed its acceptance suite. The MVP extends that baseline with public-network requirements such as adaptive difficulty, cumulative-work fork choice, production timestamp rules, fresh-node bootstrap, stronger resource handling, and a minimum usable wallet surface.
+The earlier prototype and MVP documents remain useful as design history and supporting architecture context, but they are no longer the top source of truth when they conflict with the production-network specification.
 
-The authoritative architecture and consensus specification is:
+Recorded local automated evidence before the later simplification pass:
+
+```text
+npm run build                         PASS
+npm run check                         PASS
+npm test                              PASS 150/150
+npm run test:reference-vectors        PASS 6/6
+npm run test:functional               PASS 3/3
+npm run test:reorg                    PASS 5/5
+npm run test:crash                    PASS 2/2
+npm run test:cross-network            PASS 2/2
+npm run test:fuzz                     PASS 1/1
+npm run test:relay                    PASS 5/5
+npm run test:sync                     PASS 7/7
+node dist/cli/main.js conformance --network testnet   PASS
+node dist/cli/main.js conformance --network mainnet   PASS
+```
+
+Recorded post-simplification focused evidence after changes to [`src/conformance/harness.ts`](src/conformance/harness.ts) and [`src/cli/main.ts`](src/cli/main.ts):
+
+```text
+npm run build              PASS
+npm run check              PASS
+npm run test:functional    PASS 3/3
+npm run test:relay         PASS 5/5
+npm run test:sync          PASS 7/7
+npm run test:crash         PASS 2/2
+npm run test:cross-network PASS 2/2
+npm run test:wallet        PASS 9/9
+```
+
+The final full-suite rerun of [`npm test`](package.json:17) after that simplification pass is still pending. An earlier first rerun exposed wallet CLI regressions that were then fixed, so this repository should currently claim focused affected-suite proof after simplification, not final full-suite post-simplification proof.
+
+The top authoritative protocol, operational, launch, and conformance specification is:
+
+```text
+Nostr_Blockchain_v0_Production_Network_Specification.md
+```
+
+Supporting architecture decomposition remains in:
 
 ```text
 Nostr_Blockchain_Minimum_Viable_Blockchain_Architecture_Specification.md
 ```
 
-When implementation behavior and informal documentation disagree, the architecture specification wins.
+When implementation behavior and informal documentation disagree, the production-network specification wins.
 
 ---
 
@@ -86,7 +125,7 @@ The v0 MVP is designed around the following properties:
 - CacheWalk keeps the normal NIP-01 block event ID as block identity.
 - A small NIP-13-compatible gate provides cheap early PoW filtering.
 - Target block spacing is approximately 15 seconds.
-- Difficulty adjusts deterministically using integer-only ASERT-style arithmetic.
+- Difficulty adjusts in 120-block windows using exact integer bit-level retarget steps.
 - Fork choice uses greatest cumulative validated work, not height.
 - Mining rewards are implicit; there is no coinbase transaction.
 - Minimum transaction fees are burned.
@@ -95,7 +134,7 @@ The v0 MVP is designed around the following properties:
 - Same-block child spends are intentionally forbidden in v0.
 - Nostr relays are untrusted transport and storage.
 - Fresh nodes can reconstruct chainstate from canonical genesis and untrusted relay data.
-- Full-node mining is enabled continuously by default as local policy.
+- Full-node mining is enabled continuously by default once the node is `READY`, its signer is unlocked, and at least one remote write-capable relay is reachable.
 - Mining workers never receive the miner's private signing key.
 - Consensus state can be deterministically replayed and reindexed.
 
@@ -189,68 +228,54 @@ disabled     # operator opt-out
 mine-one     # deterministic development/testing
 ```
 
-Useful commands:
+Reference public mining commands:
 
 ```text
-nostr-chain-node mining
-nostr-chain-node mine-one
-nostr-chain-node status
+nostr-blockchain mining --network mainnet|testnet --mode continuous|disabled|mine-one
+nostr-blockchain signer unlock --network mainnet|testnet
+nostr-blockchain status --network mainnet|testnet
 ```
 
 Mining pauses when the node is not ready, the signer is unavailable, consensus/storage has failed, or required network policy conditions are not met.
 
 ---
 
-## Node commands
+## CLI contract
 
-The minimum local administrative surface is:
-
-```text
-nostr-chain-node status
-nostr-chain-node balance <pubkey|npub>
-nostr-chain-node utxos <pubkey|npub>
-nostr-chain-node block <id>
-nostr-chain-node tx <id>
-nostr-chain-node mempool
-nostr-chain-node mining
-nostr-chain-node mine-one
-nostr-chain-node verify
-nostr-chain-node reindex
-nostr-chain-node replay <events.ndjson>
-```
-
-`status` should expose at least:
+The production specification defines a single public executable:
 
 ```text
-chain ID
-active tip
-height
-cumulative work
-required next target
-recent median block interval
-derived total supply
-UTXO digest
-relay health
-mining status
+nostr-blockchain
 ```
+
+Required command families include:
+
+```text
+version
+launch / network-info
+init / start / stop / status / doctor
+signer unlock / signer lock
+mining
+wallet address / balance / utxos
+send
+block / tx / mempool
+verify / reindex / replay
+conformance
+```
+
+Every chain-reading or chain-mutating command requires explicit [`--network mainnet|testnet`](docs/Nostr_Blockchain_v0_Production_Network_Specification.md:75).
 
 ---
 
 ## Wallet
 
-The MVP includes a separate wallet utility.
+The production specification folds wallet control into the main CLI surface rather than requiring a separate public wallet binary.
 
 ```text
-nostr-chain-wallet new
-nostr-chain-wallet import <nsec|ncryptsec>
-nostr-chain-wallet address
-nostr-chain-wallet balance
-nostr-chain-wallet utxos
-nostr-chain-wallet send <npub|hex-pubkey> <amount-NSR> [--priority-fee-nos N]
-nostr-chain-wallet tx <id>
-nostr-chain-wallet history
-nostr-chain-wallet export-encrypted
-nostr-chain-wallet signer-connect <nip46-token>
+nostr-blockchain wallet address --network mainnet|testnet
+nostr-blockchain wallet balance --network mainnet|testnet
+nostr-blockchain wallet utxos --network mainnet|testnet
+nostr-blockchain send --network mainnet|testnet --to <NPUB_OR_HEX> --amount <DECIMAL_NSR> [--priority-fee <DECIMAL_NSR>]
 ```
 
 The wallet is responsible for:
@@ -269,7 +294,7 @@ The wallet is responsible for:
 
 Private wallet keys must never be written to the node's chainstate database.
 
-Local encrypted wallet storage uses NIP-49 `ncryptsec` when enabled. NIP-46 may be used for remote or hardware signing.
+Local encrypted key storage uses NIP-49 `ncryptsec` by default; signer types currently frozen by the production spec are local encrypted storage and validator-only `none`, while NIP-46 remains an allowed future non-consensus extension.
 
 ---
 
@@ -336,7 +361,8 @@ The blockchain communicates externally through Nostr relays.
 A fresh node starts with:
 
 ```text
-canonical genesis.json
+bundled network descriptor
+bundled canonical genesis event
 chain ID derived from genesis
 bootstrap relay hints and/or operator-supplied relays
 ```
@@ -453,18 +479,18 @@ The diagnostic UTXO digest is not itself consensus; it exists to make cross-node
 
 ## Canonical release artifacts
 
-A public experimental network release should include:
+A release intended to match the production specification should include at minimum:
 
 ```text
-genesis.json
-genesis event ID / chain ID
-bootstrap-relays.json
-consensus conformance corpus
-CacheWalk vectors
-ASERT vectors
-software version
-source revision
-SHA-256 checksums
+networks/mainnet.json
+networks/mainnet-genesis.json
+networks/testnet.json
+networks/testnet-genesis.json
+genesis event IDs / chain IDs
+reference vectors and independent verifier
+software version and source revision
+SHA256SUMS and detached release signatures
+SECURITY.md
 ```
 
 Once a network is launched, its `genesis.json` and consensus vectors are immutable historical artifacts.
@@ -473,34 +499,15 @@ Bootstrap relay hints may change without changing consensus.
 
 ---
 
-## Minimum acceptance test
+## Current repository-state caution
 
-The public experimental MVP is considered functionally working only after the automated suite proves at least:
+The checked-in prototype has strong local automated evidence through Sprint 12, but this repository should not claim public-network readiness until it can prove the stronger contract in [`docs/Nostr_Blockchain_v0_Production_Network_Specification.md`](docs/Nostr_Blockchain_v0_Production_Network_Specification.md:1), especially:
 
-- all previous prototype regression tests still pass;
-- CacheWalk conformance vectors pass;
-- adaptive target vectors pass;
-- cumulative-work fork choice works across changing difficulty;
-- reward maturity and fee rules pass;
-- ordinary payments confirm;
-- double spends are resolved by confirmed chainstate;
-- three independent nodes mine and synchronize;
-- deliberate partitions produce forks;
-- nodes converge to the greatest-work branch after reconnection;
-- restart does not corrupt consensus state;
-- reindex/replay reconstruct identical state;
-- malformed and expensive invalid input does not corrupt the node;
-- a fourth empty node bootstraps from genesis and untrusted relays;
-- the wallet can create, sign, publish and confirm a payment.
-
-At final convergence:
-
-```text
-A.tip        == B.tip        == C.tip        == D.tip
-A.chainwork  == B.chainwork  == C.chainwork  == D.chainwork
-A.supply     == B.supply     == C.supply     == D.supply
-A.state_hash == B.state_hash == C.state_hash == D.state_hash
-```
+- official public [`networks/mainnet.json`](networks/mainnet.json) and [`networks/testnet.json`](networks/testnet.json) launch artifacts, which are still intentionally absent/prelaunch;
+- final post-simplification full-suite [`npm test`](package.json:17) verification;
+- public-network evidence beyond the recorded loopback-only conformance passes, where public bootstrap URLs contacted remained `0`;
+- any broader launch/soak proof needed for a real public testnet or mainnet rollout;
+- the release-harness [`NETWORK-CONFORMANCE: PASS`](docs/Nostr_Blockchain_v0_Production_Network_Specification.md:3604) gate as an end-to-end published release claim.
 
 ---
 

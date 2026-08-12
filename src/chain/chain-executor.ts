@@ -1,6 +1,7 @@
 import { REWARD_OUTPUT_INDEX } from '../consensus/constants';
 import { BlockEvaluation } from '../consensus/block-validation';
 import { ParsedBlock } from '../consensus/block-codec';
+import { MAX_U128 } from '../consensus/constants';
 import { UtxoRecord } from '../consensus/primitives';
 import { computeUtxoDigest } from '../state/digest';
 import { MemoryUtxoView } from '../state/utxo-view';
@@ -15,7 +16,7 @@ export interface ConnectedBlock {
   parentId: string | null;
   height: bigint;
   createdAt: number;
-  requiredTarget: bigint;
+  requiredDifficulty: number;
   blockWork: bigint;
   cumulativeWork: bigint;
   evaluation: BlockEvaluation;
@@ -122,7 +123,7 @@ export class ChainExecutor {
     return view;
   }
 
-  public connectGenesis(blockId: string, createdAt = 0, requiredTarget = 0n, cumulativeWork = 0n): void {
+  public connectGenesis(blockId: string, createdAt = 0, requiredDifficulty = 0, cumulativeWork = 0n): void {
     this.blockIndex.upsert({
       blockId,
       parentId: null,
@@ -137,7 +138,7 @@ export class ChainExecutor {
       parentId: null,
       height: 0n,
       createdAt,
-      requiredTarget,
+      requiredDifficulty,
       blockWork: cumulativeWork,
       cumulativeWork,
       evaluation: {
@@ -149,7 +150,7 @@ export class ChainExecutor {
         totalMinimumBurn: 0n,
         totalPriorityFee: 0n,
         blockRewardAmount: 0n,
-        requiredTarget,
+        requiredDifficulty,
         blockWork: cumulativeWork
       }
     });
@@ -246,6 +247,14 @@ export class ChainExecutor {
     this.cumulativeFixedRewards += direction * (block.evaluation.blockRewardAmount - block.evaluation.totalPriorityFee);
     this.cumulativePriorityFees += direction * block.evaluation.totalPriorityFee;
     this.cumulativeMinimumBurns += direction * block.evaluation.totalMinimumBurn;
+    const totalSupply = this.cumulativeFixedRewards - this.cumulativeMinimumBurns;
+    if (totalSupply < 0n || totalSupply > MAX_U128) {
+      throw new Error('consensus supply overflow');
+    }
+    const activeUtxoSum = this.utxoView.snapshot().reduce((sum, utxo) => sum + utxo.amount, 0n);
+    if (activeUtxoSum !== totalSupply) {
+      throw new Error('active UTXO sum does not match consensus supply');
+    }
   }
 
   public revalidateMempool(predicate?: (txId: string) => boolean): void {

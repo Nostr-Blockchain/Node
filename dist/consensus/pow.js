@@ -10,28 +10,36 @@ function verifyBlockPow(input) {
     if (input.nonceGateBits !== constants_1.NIP13_GATE_BITS) {
         return false;
     }
-    if ((0, primitives_1.leadingZeroBits)(input.eventId) < constants_1.NIP13_GATE_BITS) {
+    if (!(0, primitives_1.hasLeadingZeroBits)(input.eventId, constants_1.NIP13_GATE_BITS)) {
         return false;
     }
-    const workHash = cacheWalkR1(input.chainId, input.parentId, input.eventId);
-    return (0, primitives_1.decodeU256)(workHash) <= input.requiredTarget;
+    const workHash = cacheWalkR1(input.chainId, input.parentId, input.eventId, input.cacheWalkR1);
+    return (0, primitives_1.hasLeadingZeroBits)(workHash, input.requiredDifficulty);
 }
-function cacheWalkR1(chainId, parentId, eventId) {
-    return cacheWalkR1Details(chainId, parentId, eventId).workHash;
+function cacheWalkR1(chainId, parentId, eventId, params) {
+    return cacheWalkR1Details(chainId, parentId, eventId, params).workHash;
 }
-function cacheWalkR1Details(chainId, parentId, eventId) {
+function cacheWalkR1Details(chainId, parentId, eventId, params) {
+    const cacheWalkParams = params ?? {
+        scratchpadBytes: constants_1.CACHEWALK_R1_BYTES,
+        lineBytes: constants_1.CACHEWALK_R1_LINE_BYTES,
+        lineCount: constants_1.CACHEWALK_R1_LINES,
+        passes: constants_1.CACHEWALK_R1_PASSES
+    };
     const seed = (0, primitives_1.sha256)(Buffer.concat([(0, primitives_1.utf8Bytes)('NostrCacheWalk-R1/seed'), Buffer.from(chainId), Buffer.from(parentId), Buffer.from(eventId)]));
-    const scratch = (0, chacha_1.chacha20)(seed, Buffer.alloc(12, 0), Buffer.alloc(constants_1.CACHEWALK_R1_BYTES, 0), undefined, 0);
+    const scratch = (0, chacha_1.chacha20)(seed, Buffer.alloc(12, 0), Buffer.alloc(cacheWalkParams.scratchpadBytes, 0), undefined, 0);
+    const initialFirstScratchLine = Buffer.from(scratch.subarray(0, cacheWalkParams.lineBytes));
+    const initialLastScratchLine = Buffer.from(scratch.subarray(scratch.length - cacheWalkParams.lineBytes));
     const lines = [];
-    for (let offset = 0; offset < scratch.length; offset += constants_1.CACHEWALK_R1_LINE_BYTES) {
-        lines.push(Buffer.from(scratch.subarray(offset, offset + constants_1.CACHEWALK_R1_LINE_BYTES)));
+    for (let offset = 0; offset < scratch.length; offset += cacheWalkParams.lineBytes) {
+        lines.push(Buffer.from(scratch.subarray(offset, offset + cacheWalkParams.lineBytes)));
     }
     const initialState = (0, primitives_1.sha256)(Buffer.concat([(0, primitives_1.utf8Bytes)('NostrCacheWalk-R1/state'), seed, Buffer.from(parentId), Buffer.from(eventId)]));
     let state = Buffer.from(initialState);
     let stateAfterPass0 = Buffer.from(initialState);
-    for (let pass = 0; pass < constants_1.CACHEWALK_R1_PASSES; pass += 1) {
-        for (let index = 0; index < constants_1.CACHEWALK_R1_LINES; index += 1) {
-            const lineIndex = (0, primitives_1.decodeU32LE)(state, 0) & 4095;
+    for (let pass = 0; pass < cacheWalkParams.passes; pass += 1) {
+        for (let index = 0; index < cacheWalkParams.lineCount; index += 1) {
+            const lineIndex = (0, primitives_1.decodeU32LE)(state, 0) & (cacheWalkParams.lineCount - 1);
             const lineA = Buffer.from(lines[index]);
             const lineB = Buffer.from(lines[lineIndex]);
             const passBytes = Buffer.alloc(4);
@@ -48,7 +56,7 @@ function cacheWalkR1Details(chainId, parentId, eventId) {
             stateAfterPass0 = Buffer.from(state);
         }
     }
-    const finalIndex = (0, primitives_1.decodeU32LE)(state, 4) & 4095;
+    const finalIndex = (0, primitives_1.decodeU32LE)(state, 4) & (cacheWalkParams.lineCount - 1);
     const workHash = (0, primitives_1.sha256)(Buffer.concat([
         (0, primitives_1.utf8Bytes)('NostrCacheWalk-R1/final'),
         state,
@@ -59,8 +67,8 @@ function cacheWalkR1Details(chainId, parentId, eventId) {
     ]));
     return {
         seed,
-        firstScratchLine: Buffer.from(lines[0]),
-        lastScratchLine: Buffer.from(lines[constants_1.CACHEWALK_R1_LINES - 1]),
+        firstScratchLine: initialFirstScratchLine,
+        lastScratchLine: initialLastScratchLine,
         initialState,
         stateAfterPass0,
         stateAfterPass1: Buffer.from(state),

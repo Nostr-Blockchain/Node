@@ -1,7 +1,7 @@
 import { MAX_U128 } from './constants';
 import { splitFees } from './fees';
 import { GenesisParams } from './genesis';
-import { ParsedTransaction, parseTransactionEvent } from './transaction-codec';
+import { ParsedTransaction, canonicalizeTransactionData, parseTransactionEvent } from './transaction-codec';
 import { ConsensusError, assertConsensus } from './errors';
 import { NostrEvent } from './nip01';
 import { UtxoRecord, compareBytes, outpointKey } from './primitives';
@@ -38,7 +38,8 @@ export function validateParsedTransaction(
   cryptoProvider: CryptoProvider,
   view: UtxoView
 ): TxEvaluation {
-  const { data, event } = parsed;
+  const { event } = parsed;
+  const data = canonicalizeTransactionData(parsed.data);
   assertConsensus(data.inputs.length >= 1 && data.inputs.length <= params.maxTxInputs, 'TX_BAD_COUNTS');
   assertConsensus(data.outputs.length >= 1 && data.outputs.length <= params.maxTxOutputs, 'TX_BAD_COUNTS');
 
@@ -64,6 +65,7 @@ export function validateParsedTransaction(
     }
     consumedOutpoints.push(utxo);
     sumInputs += utxo.amount;
+    assertConsensus(sumInputs <= MAX_U128 * BigInt(data.inputs.length), 'TX_VALUE_OVERFLOW');
   }
 
   const createdOutputs: UtxoRecord[] = [];
@@ -89,7 +91,10 @@ export function validateParsedTransaction(
   assertConsensus(fees.priorityFee <= MAX_U128 - params.blockReward, 'TX_PRIORITY_TOO_LARGE');
 
   return {
-    parsed,
+    parsed: {
+      ...parsed,
+      data
+    },
     consumedOutpoints,
     createdOutputs,
     sumInputs,

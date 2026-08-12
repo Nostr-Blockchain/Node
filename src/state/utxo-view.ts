@@ -3,6 +3,7 @@ import { UtxoRecord } from '../consensus/primitives';
 export interface UtxoView {
   getUtxo(sourceId: Uint8Array, outputIndex: number): UtxoRecord | null;
   listUtxosByOwner(owner: Uint8Array): UtxoRecord[];
+  listAllUtxos(): UtxoRecord[];
 }
 
 export class MemoryUtxoView implements UtxoView {
@@ -22,6 +23,10 @@ export class MemoryUtxoView implements UtxoView {
     return [...this.utxos.values()].filter((utxo) => Buffer.compare(utxo.owner, Buffer.from(owner)) === 0);
   }
 
+  public listAllUtxos(): UtxoRecord[] {
+    return [...this.utxos.values()];
+  }
+
   public setUtxo(utxo: UtxoRecord): void {
     this.utxos.set(key(utxo.sourceId, utxo.outputIndex), utxo);
   }
@@ -31,7 +36,7 @@ export class MemoryUtxoView implements UtxoView {
   }
 
   public snapshot(): UtxoRecord[] {
-    return [...this.utxos.values()].map((utxo) => ({ ...utxo }));
+    return [...this.utxos.values()].map((utxo) => ({ ...utxo, sourceId: Buffer.from(utxo.sourceId), owner: Buffer.from(utxo.owner) }));
   }
 }
 

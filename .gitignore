@@ -5,3 +5,6 @@ tests/.tmp-*
 .understand-anything/
 .kilocode/
 docs/maintainer-wiki
+test_*
+*.stdout.log
+*.stderr.log

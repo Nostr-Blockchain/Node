@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 
 import { REWARD_OUTPUT_INDEX } from '../consensus/constants';
-import { encodeU64, encodeU128, encodeU136, decodeU136, decodeU128, decodeU64, UtxoRecord } from '../consensus/primitives';
+import { encodeU64, encodeU128, encodeU136, decodeU136, decodeU128, decodeU256, decodeU64, UtxoRecord } from '../consensus/primitives';
 import { BlockIndex, BlockIndexEntry } from '../chain/block-index';
 import { MemoryUtxoView } from '../state/utxo-view';
 
@@ -75,14 +75,14 @@ export class BlockRepository {
 
   public loadIndex(): BlockIndex {
     const index = new BlockIndex();
-    const rows = this.database.prepare('SELECT block_id, parent_id, height, validation_state, active, invalid_code FROM blocks').all() as Array<Record<string, Buffer | number | string | null>>;
+    const rows = this.database.prepare('SELECT block_id, parent_id, height, cumulative_work_be32, validation_state, active, invalid_code FROM blocks').all() as Array<Record<string, Buffer | number | string | null>>;
     for (const row of rows) {
       const height = row.height === null ? null : BigInt(row.height as number);
       index.upsert({
         blockId: (row.block_id as Buffer).toString('hex'),
         parentId: row.parent_id === null ? null : (row.parent_id as Buffer).toString('hex'),
         height,
-        cumulativeWork: height,
+        cumulativeWork: row.cumulative_work_be32 === null ? height : decodeU256(row.cumulative_work_be32 as Buffer),
         validationState: row.validation_state as BlockIndexEntry['validationState'],
         active: Number(row.active) === 1,
         invalidCode: row.invalid_code === null ? null : String(row.invalid_code)

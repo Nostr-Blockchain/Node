@@ -7,7 +7,7 @@ export interface FeeBreakdown {
 }
 
 export function calculateMinimumBurn(params: GenesisParams, inputCount: number, outputCount: number): bigint {
-  return params.baseFee + (params.inputFee * BigInt(inputCount)) + (params.outputFee * BigInt(outputCount));
+  return 1000n + (250n * BigInt(inputCount)) + (500n * BigInt(outputCount));
 }
 
 export function splitFees(sumInputs: bigint, sumOutputs: bigint, params: GenesisParams, inputCount: number, outputCount: number): FeeBreakdown {

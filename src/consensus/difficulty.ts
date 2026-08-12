@@ -1,47 +1,104 @@
-import { GenesisParams } from './genesis';
-import { decodeU256, encodeU256, truncDivTowardZero } from './primitives';
+import { NetworkParams } from '../networks/params';
 
-const RADIX = 65536n;
-const MAX_U256 = (1n << 256n) - 1n;
-
-export function computeRequiredTarget(params: GenesisParams, genesisCreatedAt: number, parentCreatedAt: number, candidateHeight: bigint): bigint {
-  if (candidateHeight === 0n) {
-    return params.initialPowTarget;
-  }
-
-  const heightDelta = candidateHeight - 1n;
-  const anchorParentTime = BigInt(genesisCreatedAt - params.targetBlockInterval);
-  const timeDelta = BigInt(parentCreatedAt) - anchorParentTime;
-  const exponent = truncDivTowardZero((timeDelta - BigInt(params.targetBlockInterval) * (heightDelta + 1n)) * RADIX, BigInt(params.asertHalfLife));
-  const numShifts = exponent >> 16n;
-  const frac = exponent - (numShifts * RADIX);
-  const factor = (((195766423245049n * frac) + (971821376n * frac * frac) + (5127n * frac * frac * frac) + (1n << 47n)) >> 48n) + RADIX;
-
-  let nextTarget = params.initialPowTarget * factor;
-  if (numShifts < 0n) {
-    nextTarget >>= -numShifts;
-  } else {
-    nextTarget <<= numShifts;
-  }
-  nextTarget >>= 16n;
-
-  if (nextTarget < 1n) {
-    return 1n;
-  }
-  if (nextTarget > params.powLimitTarget) {
-    return params.powLimitTarget;
-  }
-  return nextTarget;
+export interface DifficultyHistoryEntry {
+  readonly blockId: string;
+  readonly parentId: string | null;
+  readonly height: bigint;
+  readonly createdAt: number;
+  readonly requiredDifficulty: number;
 }
 
-export function computeBlockWork(requiredTarget: bigint): bigint {
-  return (MAX_U256 / (requiredTarget + 1n)) + 1n;
+export function calculateMedianTimePast(
+  blockId: string | null,
+  getBlock: (blockId: string) => DifficultyHistoryEntry | null
+): number {
+  const timestamps: number[] = [];
+  let cursor = blockId;
+  while (cursor !== null && timestamps.length < 11) {
+    const block = getBlock(cursor);
+    if (block === null) {
+      break;
+    }
+    timestamps.push(block.createdAt);
+    cursor = block.parentId;
+  }
+  timestamps.sort((left, right) => left - right);
+  if (timestamps.length === 0) {
+    return 0;
+  }
+  return timestamps[(timestamps.length - 1) >> 1]!;
 }
 
-export function targetToHex(requiredTarget: bigint): string {
-  return encodeU256(requiredTarget).toString('hex');
+export function calculateCandidateTimestamp(
+  parentBlockId: string,
+  localUnixTime: number,
+  getBlock: (blockId: string) => DifficultyHistoryEntry | null
+): number {
+  const medianTimePast = calculateMedianTimePast(parentBlockId, getBlock);
+  return Math.max(localUnixTime, medianTimePast + 1);
 }
 
-export function targetFromHex(requiredTargetHex: string): bigint {
-  return decodeU256(Buffer.from(requiredTargetHex, 'hex'));
+export function calculateNextDifficulty(
+  params: NetworkParams,
+  candidateHeight: bigint,
+  parentBlock: DifficultyHistoryEntry,
+  getBlock: (blockId: string) => DifficultyHistoryEntry | null
+): number {
+  if (candidateHeight <= BigInt(params.difficultyWindow)) {
+    return params.initialDifficultyBits;
+  }
+
+  if ((candidateHeight - 1n) % BigInt(params.difficultyWindow) !== 0n) {
+    return parentBlock.requiredDifficulty;
+  }
+
+  const startBlock = getAncestor(parentBlock, params.difficultyWindow, getBlock);
+  const endMedianTimePast = calculateMedianTimePast(parentBlock.blockId, getBlock);
+  const startMedianTimePast = calculateMedianTimePast(startBlock.blockId, getBlock);
+  const actualSpan = BigInt(endMedianTimePast - startMedianTimePast);
+  if (actualSpan <= 0n) {
+    throw new Error('invalid non-positive difficulty timespan');
+  }
+
+  const targetSpan = BigInt(params.difficultyWindow * params.targetBlockSeconds);
+  let nextDifficulty = parentBlock.requiredDifficulty;
+  if (actualSpan * 4n < targetSpan * 3n) {
+    nextDifficulty += 1;
+  } else if (actualSpan * 2n > targetSpan * 3n) {
+    nextDifficulty -= 1;
+  }
+
+  return clampDifficultyBits(nextDifficulty, params.minDifficultyBits, params.maxDifficultyBits);
+}
+
+export function clampDifficultyBits(difficultyBits: number, minimumDifficultyBits: number, maximumDifficultyBits: number): number {
+  if (difficultyBits < minimumDifficultyBits) {
+    return minimumDifficultyBits;
+  }
+  if (difficultyBits > maximumDifficultyBits) {
+    return maximumDifficultyBits;
+  }
+  return difficultyBits;
+}
+
+export function computeBlockWork(requiredDifficulty: number): bigint {
+  return 1n << BigInt(requiredDifficulty);
+}
+
+function getAncestor(
+  block: DifficultyHistoryEntry,
+  depth: number,
+  getBlock: (blockId: string) => DifficultyHistoryEntry | null
+): DifficultyHistoryEntry {
+  let cursor: DifficultyHistoryEntry | null = block;
+  for (let step = 0; step < depth; step += 1) {
+    if (cursor === null || cursor.parentId === null) {
+      throw new Error('insufficient ancestor history for difficulty retarget');
+    }
+    cursor = getBlock(cursor.parentId);
+  }
+  if (cursor === null) {
+    throw new Error('missing ancestor history for difficulty retarget');
+  }
+  return cursor;
 }

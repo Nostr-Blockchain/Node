@@ -14,6 +14,9 @@ class MemoryUtxoView {
     listUtxosByOwner(owner) {
         return [...this.utxos.values()].filter((utxo) => Buffer.compare(utxo.owner, Buffer.from(owner)) === 0);
     }
+    listAllUtxos() {
+        return [...this.utxos.values()];
+    }
     setUtxo(utxo) {
         this.utxos.set(key(utxo.sourceId, utxo.outputIndex), utxo);
     }
@@ -21,7 +24,7 @@ class MemoryUtxoView {
         this.utxos.delete(key(sourceId, outputIndex));
     }
     snapshot() {
-        return [...this.utxos.values()].map((utxo) => ({ ...utxo }));
+        return [...this.utxos.values()].map((utxo) => ({ ...utxo, sourceId: Buffer.from(utxo.sourceId), owner: Buffer.from(utxo.owner) }));
     }
 }
 exports.MemoryUtxoView = MemoryUtxoView;

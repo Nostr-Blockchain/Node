@@ -14,7 +14,8 @@ import { computeBlockWork } from './difficulty';
 export interface BlockValidationContext {
   medianTimePast: number;
   localTime: number;
-  requiredTarget: bigint;
+  requiredDifficulty: number;
+  cacheWalkR1?: { scratchpadBytes: number; lineBytes: number; lineCount: number; passes: number };
 }
 
 export interface BlockEvaluation {
@@ -26,7 +27,7 @@ export interface BlockEvaluation {
   totalMinimumBurn: bigint;
   totalPriorityFee: bigint;
   blockRewardAmount: bigint;
-  requiredTarget: bigint;
+  requiredDifficulty: number;
   blockWork: bigint;
 }
 
@@ -54,15 +55,32 @@ export function validateBlock(
   assertConsensus(transactions.length === parsedBlock.txIds.length, 'BLK_TX_DATA_MISSING');
   assertConsensus(event.created_at > context.medianTimePast, 'BLK_TIME_TOO_OLD');
   assertConsensus(event.created_at <= context.localTime + 120, 'BLK_TIME_FUTURE');
+
+   const txIdsInBlock = new Set<string>();
+   for (const txIdBytes of parsedBlock.txIds) {
+    const txIdHex = Buffer.from(txIdBytes).toString('hex');
+    assertConsensus(!txIdsInBlock.has(txIdHex), 'BLK_TX_DUPLICATE');
+    txIdsInBlock.add(txIdHex);
+  }
+
   for (let index = 0; index < transactions.length; index += 1) {
     assertConsensus(compareBytes(hexToBytes(transactions[index]!.event.id, 32), parsedBlock.txIds[index]!) === 0, 'BLK_TX_INVALID');
   }
+
+  for (const transaction of transactions) {
+    for (const input of transaction.data.inputs) {
+      const spentSameBlockOutput = txIdsInBlock.has(Buffer.from(input.sourceId).toString('hex'));
+      assertConsensus(!spentSameBlockOutput, 'BLK_INPUT_CONFLICT');
+    }
+  }
+
   const powValid = verifyBlockPow({
     chainId: hexToBytes(chainIdHex, 32),
     parentId,
     eventId: hexToBytes(event.id, 32),
-    requiredTarget: context.requiredTarget,
-    nonceGateBits: Number(parsedBlock.event.tags[parsedBlock.event.tags.length - 1]![2])
+    requiredDifficulty: context.requiredDifficulty,
+    nonceGateBits: Number(parsedBlock.event.tags[2]![2]),
+    cacheWalkR1: context.cacheWalkR1
   });
   assertConsensus(powValid, 'BLK_INSUFFICIENT_POW');
 
@@ -71,7 +89,7 @@ export function validateBlock(
   for (const evaluation of txEvaluations) {
     for (const consumed of evaluation.consumedOutpoints) {
       const key = `${consumed.sourceId.toString('hex')}:${consumed.outputIndex}`;
-      assertConsensus(!spentOutpoints.has(key), 'BLK_DOUBLE_SPEND');
+      assertConsensus(!spentOutpoints.has(key), 'BLK_INPUT_CONFLICT');
       spentOutpoints.add(key);
     }
   }
@@ -98,7 +116,7 @@ export function validateBlock(
     totalMinimumBurn,
     totalPriorityFee,
     blockRewardAmount,
-    requiredTarget: context.requiredTarget,
-    blockWork: computeBlockWork(context.requiredTarget)
+    requiredDifficulty: context.requiredDifficulty,
+    blockWork: computeBlockWork(context.requiredDifficulty)
   };
 }

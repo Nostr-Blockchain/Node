@@ -1,14 +1,16 @@
 import { chacha20 } from '@noble/ciphers/chacha';
 
 import { CACHEWALK_R1_BYTES, CACHEWALK_R1_LINE_BYTES, CACHEWALK_R1_LINES, CACHEWALK_R1_PASSES, NIP13_GATE_BITS } from './constants';
-import { decodeU32LE, decodeU256, leadingZeroBits, sha256, utf8Bytes } from './primitives';
+import { decodeU32LE, hasLeadingZeroBits, sha256, utf8Bytes } from './primitives';
+import { CacheWalkR1Params } from '../networks/params';
 
 export interface PowInput {
   chainId: Uint8Array;
   parentId: Uint8Array;
   eventId: Uint8Array;
-  requiredTarget: bigint;
+  requiredDifficulty: number;
   nonceGateBits: number;
+  cacheWalkR1?: CacheWalkR1Params;
 }
 
 export interface CacheWalkVectorDetails {
@@ -26,31 +28,39 @@ export function verifyBlockPow(input: PowInput): boolean {
   if (input.nonceGateBits !== NIP13_GATE_BITS) {
     return false;
   }
-  if (leadingZeroBits(input.eventId) < NIP13_GATE_BITS) {
+  if (!hasLeadingZeroBits(input.eventId, NIP13_GATE_BITS)) {
     return false;
   }
-  const workHash = cacheWalkR1(input.chainId, input.parentId, input.eventId);
-  return decodeU256(workHash) <= input.requiredTarget;
+  const workHash = cacheWalkR1(input.chainId, input.parentId, input.eventId, input.cacheWalkR1);
+  return hasLeadingZeroBits(workHash, input.requiredDifficulty);
 }
 
-export function cacheWalkR1(chainId: Uint8Array, parentId: Uint8Array, eventId: Uint8Array): Buffer {
-  return cacheWalkR1Details(chainId, parentId, eventId).workHash;
+export function cacheWalkR1(chainId: Uint8Array, parentId: Uint8Array, eventId: Uint8Array, params?: CacheWalkR1Params): Buffer {
+  return cacheWalkR1Details(chainId, parentId, eventId, params).workHash;
 }
 
-export function cacheWalkR1Details(chainId: Uint8Array, parentId: Uint8Array, eventId: Uint8Array): CacheWalkVectorDetails {
+export function cacheWalkR1Details(chainId: Uint8Array, parentId: Uint8Array, eventId: Uint8Array, params?: CacheWalkR1Params): CacheWalkVectorDetails {
+  const cacheWalkParams = params ?? {
+    scratchpadBytes: CACHEWALK_R1_BYTES,
+    lineBytes: CACHEWALK_R1_LINE_BYTES,
+    lineCount: CACHEWALK_R1_LINES,
+    passes: CACHEWALK_R1_PASSES
+  };
   const seed = sha256(Buffer.concat([utf8Bytes('NostrCacheWalk-R1/seed'), Buffer.from(chainId), Buffer.from(parentId), Buffer.from(eventId)]));
-  const scratch = chacha20(seed, Buffer.alloc(12, 0), Buffer.alloc(CACHEWALK_R1_BYTES, 0), undefined, 0);
+  const scratch = chacha20(seed, Buffer.alloc(12, 0), Buffer.alloc(cacheWalkParams.scratchpadBytes, 0), undefined, 0);
+  const initialFirstScratchLine = Buffer.from(scratch.subarray(0, cacheWalkParams.lineBytes));
+  const initialLastScratchLine = Buffer.from(scratch.subarray(scratch.length - cacheWalkParams.lineBytes));
   const lines: Buffer[] = [];
-  for (let offset = 0; offset < scratch.length; offset += CACHEWALK_R1_LINE_BYTES) {
-    lines.push(Buffer.from(scratch.subarray(offset, offset + CACHEWALK_R1_LINE_BYTES)));
+  for (let offset = 0; offset < scratch.length; offset += cacheWalkParams.lineBytes) {
+    lines.push(Buffer.from(scratch.subarray(offset, offset + cacheWalkParams.lineBytes)));
   }
 
   const initialState = sha256(Buffer.concat([utf8Bytes('NostrCacheWalk-R1/state'), seed, Buffer.from(parentId), Buffer.from(eventId)]));
   let state = Buffer.from(initialState);
   let stateAfterPass0 = Buffer.from(initialState);
-  for (let pass = 0; pass < CACHEWALK_R1_PASSES; pass += 1) {
-    for (let index = 0; index < CACHEWALK_R1_LINES; index += 1) {
-      const lineIndex = decodeU32LE(state, 0) & 4095;
+  for (let pass = 0; pass < cacheWalkParams.passes; pass += 1) {
+    for (let index = 0; index < cacheWalkParams.lineCount; index += 1) {
+      const lineIndex = decodeU32LE(state, 0) & (cacheWalkParams.lineCount - 1);
       const lineA = Buffer.from(lines[index]!);
       const lineB = Buffer.from(lines[lineIndex]!);
       const passBytes = Buffer.alloc(4);
@@ -68,7 +78,7 @@ export function cacheWalkR1Details(chainId: Uint8Array, parentId: Uint8Array, ev
     }
   }
 
-  const finalIndex = decodeU32LE(state, 4) & 4095;
+  const finalIndex = decodeU32LE(state, 4) & (cacheWalkParams.lineCount - 1);
   const workHash = sha256(Buffer.concat([
     utf8Bytes('NostrCacheWalk-R1/final'),
     state,
@@ -80,8 +90,8 @@ export function cacheWalkR1Details(chainId: Uint8Array, parentId: Uint8Array, ev
 
   return {
     seed,
-    firstScratchLine: Buffer.from(lines[0]!),
-    lastScratchLine: Buffer.from(lines[CACHEWALK_R1_LINES - 1]!),
+    firstScratchLine: initialFirstScratchLine,
+    lastScratchLine: initialLastScratchLine,
     initialState,
     stateAfterPass0,
     stateAfterPass1: Buffer.from(state),

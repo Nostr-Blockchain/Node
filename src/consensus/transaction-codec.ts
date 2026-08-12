@@ -1,7 +1,7 @@
-import { makeChainScope, PROTOCOL_VERSION } from './constants';
+import { TX_KIND, makeChainScope, PROTOCOL_VERSION } from './constants';
 import { ConsensusError, assertConsensus } from './errors';
 import { NostrEvent } from './nip01';
-import { bytesToHex, compareBytes, decodeU16, decodeU128, encodeU128, hexToBytes } from './primitives';
+import { compareBytes, decodeU16, decodeU128, encodeU16, encodeU128, hexToBytes, sortOutpointsCanonical } from './primitives';
 
 export interface TxInput {
   sourceId: Buffer;
@@ -22,22 +22,15 @@ export interface TransactionData {
 export interface ParsedTransaction {
   event: NostrEvent;
   data: TransactionData;
-  uniqueInputSourceIds: Buffer[];
-  uniqueOutputOwners: Buffer[];
 }
 
 export function encodeTransactionContent(data: TransactionData): string {
-  const parts: Buffer[] = [Buffer.from([data.version]), Buffer.alloc(2)];
-  parts[1].writeUInt16BE(data.inputs.length, 0);
+  const parts: Buffer[] = [Buffer.from([data.version]), encodeU16(data.inputs.length)];
   for (const input of data.inputs) {
     parts.push(Buffer.from(input.sourceId));
-    const indexBytes = Buffer.alloc(2);
-    indexBytes.writeUInt16BE(input.outputIndex, 0);
-    parts.push(indexBytes);
+    parts.push(encodeU16(input.outputIndex));
   }
-  const outputCount = Buffer.alloc(2);
-  outputCount.writeUInt16BE(data.outputs.length, 0);
-  parts.push(outputCount);
+  parts.push(encodeU16(data.outputs.length));
   for (const output of data.outputs) {
     parts.push(Buffer.from(output.ownerPubkey));
     parts.push(encodeU128(output.amount));
@@ -46,7 +39,7 @@ export function encodeTransactionContent(data: TransactionData): string {
 }
 
 export function decodeTransactionContent(contentHex: string): TransactionData {
-  const bytes = hexToBytes(contentHex);
+  const bytes = decodeTransactionContentHex(contentHex);
   assertConsensus(bytes.length >= 5, 'TX_BAD_LENGTH');
   const version = bytes[0] ?? 0;
   const inputCount = decodeU16(bytes, 1);
@@ -62,6 +55,8 @@ export function decodeTransactionContent(contentHex: string): TransactionData {
   }
   assertConsensus(offset + 2 <= bytes.length, 'TX_BAD_LENGTH');
   const outputCount = decodeU16(bytes, offset);
+  const expectedLength = 5 + (34 * inputCount) + (48 * outputCount);
+  assertConsensus(bytes.length === expectedLength, 'TX_BAD_LENGTH');
   offset += 2;
   const outputs: TxOutput[] = [];
   for (let index = 0; index < outputCount; index += 1) {
@@ -77,39 +72,84 @@ export function decodeTransactionContent(contentHex: string): TransactionData {
 }
 
 export function deriveTransactionTags(chainIdHex: string, data: TransactionData): string[][] {
-  const sourceIds = uniqueSortedHex(data.inputs.map((input) => input.sourceId));
-  const owners = uniqueSortedHex(data.outputs.map((output) => output.ownerPubkey));
   return [
     ['t', makeChainScope(chainIdHex)],
-    ...sourceIds.map((hex) => ['e', hex]),
-    ...owners.map((hex) => ['p', hex])
+    ['v', PROTOCOL_VERSION.toString(10)],
+    ...data.inputs.map((input) => ['i', Buffer.from(input.sourceId).toString('hex'), canonicalDecimal(input.outputIndex)]),
+    ...data.outputs.map((output) => ['p', Buffer.from(output.ownerPubkey).toString('hex')])
   ];
 }
 
-export function parseTransactionEvent(event: NostrEvent, chainIdHex: string): ParsedTransaction {
-  const data = decodeTransactionContent(event.content);
-  assertConsensus(data.version === PROTOCOL_VERSION, 'TX_BAD_VERSION');
-  const expectedTags = deriveTransactionTags(chainIdHex, data);
-  assertConsensus(JSON.stringify(event.tags) === JSON.stringify(expectedTags), 'TX_BAD_TAGS');
+export function canonicalizeTransactionData(data: TransactionData): TransactionData {
   return {
-    event,
-    data,
-    uniqueInputSourceIds: uniqueSortedBuffers(data.inputs.map((input) => input.sourceId)),
-    uniqueOutputOwners: uniqueSortedBuffers(data.outputs.map((output) => output.ownerPubkey))
+    version: data.version,
+    inputs: sortOutpointsCanonical(data.inputs).map((input) => ({
+      sourceId: Buffer.from(input.sourceId),
+      outputIndex: input.outputIndex
+    })),
+    outputs: data.outputs.map((output) => ({
+      ownerPubkey: Buffer.from(output.ownerPubkey),
+      amount: output.amount
+    }))
   };
 }
 
-function uniqueSortedHex(values: readonly Buffer[]): string[] {
-  return uniqueSortedBuffers(values).map((value) => bytesToHex(value));
+export function parseTransactionEvent(event: NostrEvent, chainIdHex: string): ParsedTransaction {
+  assertConsensus(event.kind === TX_KIND, 'TX_BAD_KIND');
+  const data = decodeTransactionContent(event.content);
+  assertConsensus(data.version === PROTOCOL_VERSION, 'TX_BAD_VERSION');
+  assertTransactionTags(event.tags, chainIdHex, data);
+  return {
+    event,
+    data
+  };
 }
 
-function uniqueSortedBuffers(values: readonly Buffer[]): Buffer[] {
-  const sorted = [...values].sort(compareBytes);
-  const unique: Buffer[] = [];
-  for (const value of sorted) {
-    if (unique.length === 0 || compareBytes(unique[unique.length - 1], value) !== 0) {
-      unique.push(value);
+function decodeTransactionContentHex(contentHex: string): Buffer {
+  try {
+    return hexToBytes(contentHex);
+  } catch (error) {
+    if (error instanceof ConsensusError && error.code === 'BAD_HEX') {
+      throw new ConsensusError('TX_BAD_CONTENT_HEX');
     }
+    throw error;
   }
-  return unique;
+}
+
+function assertTransactionTags(tags: string[][], chainIdHex: string, data: TransactionData): void {
+  const expectedLength = 2 + data.inputs.length + data.outputs.length;
+  assertConsensus(tags.length === expectedLength, 'TX_BAD_TAGS');
+
+  const scopeTag = tags[0] ?? [];
+  assertConsensus(scopeTag.length === 2 && scopeTag[0] === 't' && scopeTag[1] === makeChainScope(chainIdHex), 'TX_BAD_SCOPE');
+
+  const versionTag = tags[1] ?? [];
+  assertConsensus(versionTag.length === 2 && versionTag[0] === 'v' && versionTag[1] === PROTOCOL_VERSION.toString(10), 'TX_BAD_TAGS');
+
+  for (let index = 0; index < data.inputs.length; index += 1) {
+    const tag = tags[index + 2] ?? [];
+    const input = data.inputs[index]!;
+    assertConsensus(
+      tag.length === 3
+        && tag[0] === 'i'
+        && tag[1] === Buffer.from(input.sourceId).toString('hex')
+        && tag[2] === canonicalDecimal(input.outputIndex),
+      'TX_BAD_TAGS'
+    );
+  }
+
+  for (let index = 0; index < data.outputs.length; index += 1) {
+    const tag = tags[data.inputs.length + index + 2] ?? [];
+    const output = data.outputs[index]!;
+    assertConsensus(
+      tag.length === 2
+        && tag[0] === 'p'
+        && tag[1] === Buffer.from(output.ownerPubkey).toString('hex'),
+      'TX_BAD_TAGS'
+    );
+  }
+}
+
+function canonicalDecimal(value: number): string {
+  return value.toString(10);
 }

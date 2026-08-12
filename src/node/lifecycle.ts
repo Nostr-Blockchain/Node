@@ -1,4 +1,4 @@
-export type NodeLifecycleState = 'STARTING' | 'RECOVERING' | 'SYNCING' | 'READY' | 'DEGRADED' | 'SHUTTING_DOWN';
+export type NodeLifecycleState = 'STARTING' | 'RECOVERING' | 'SYNCING' | 'READY' | 'DEGRADED' | 'SHUTTING_DOWN' | 'STOPPED';
 
 export class NodeLifecycle {
   private state: NodeLifecycleState = 'STARTING';

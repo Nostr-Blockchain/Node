@@ -18,6 +18,9 @@ exports.decodeU128 = decodeU128;
 exports.decodeU136 = decodeU136;
 exports.decodeU256 = decodeU256;
 exports.compareBytes = compareBytes;
+exports.countLeadingZeroBits = countLeadingZeroBits;
+exports.countLeadingZeroBitsHex = countLeadingZeroBitsHex;
+exports.hasLeadingZeroBits = hasLeadingZeroBits;
 exports.leadingZeroBits = leadingZeroBits;
 exports.parseCanonicalDecimalU64 = parseCanonicalDecimalU64;
 exports.truncDivTowardZero = truncDivTowardZero;
@@ -143,7 +146,7 @@ function decodeU256(bytes, offset = 0) {
 function compareBytes(left, right) {
     return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
-function leadingZeroBits(bytes) {
+function countLeadingZeroBits(bytes) {
     let count = 0;
     for (const byte of bytes) {
         if (byte === 0) {
@@ -160,6 +163,15 @@ function leadingZeroBits(bytes) {
         }
     }
     return count;
+}
+function countLeadingZeroBitsHex(hex) {
+    return countLeadingZeroBits(hexToBytes(hex));
+}
+function hasLeadingZeroBits(bytes, expectedBits) {
+    return countLeadingZeroBits(bytes) >= expectedBits;
+}
+function leadingZeroBits(bytes) {
+    return countLeadingZeroBits(bytes);
 }
 function parseCanonicalDecimalU64(text) {
     if (!/^(0|[1-9][0-9]*)$/.test(text)) {

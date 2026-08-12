@@ -64,14 +64,14 @@ class BlockRepository {
     }
     loadIndex() {
         const index = new block_index_1.BlockIndex();
-        const rows = this.database.prepare('SELECT block_id, parent_id, height, validation_state, active, invalid_code FROM blocks').all();
+        const rows = this.database.prepare('SELECT block_id, parent_id, height, cumulative_work_be32, validation_state, active, invalid_code FROM blocks').all();
         for (const row of rows) {
             const height = row.height === null ? null : BigInt(row.height);
             index.upsert({
                 blockId: row.block_id.toString('hex'),
                 parentId: row.parent_id === null ? null : row.parent_id.toString('hex'),
                 height,
-                cumulativeWork: height,
+                cumulativeWork: row.cumulative_work_be32 === null ? height : (0, primitives_1.decodeU256)(row.cumulative_work_be32),
                 validationState: row.validation_state,
                 active: Number(row.active) === 1,
                 invalidCode: row.invalid_code === null ? null : String(row.invalid_code)

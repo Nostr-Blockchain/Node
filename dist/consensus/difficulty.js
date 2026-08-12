@@ -1,45 +1,77 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.computeRequiredTarget = computeRequiredTarget;
+exports.calculateMedianTimePast = calculateMedianTimePast;
+exports.calculateCandidateTimestamp = calculateCandidateTimestamp;
+exports.calculateNextDifficulty = calculateNextDifficulty;
+exports.clampDifficultyBits = clampDifficultyBits;
 exports.computeBlockWork = computeBlockWork;
-exports.targetToHex = targetToHex;
-exports.targetFromHex = targetFromHex;
-const primitives_1 = require("./primitives");
-const RADIX = 65536n;
-const MAX_U256 = (1n << 256n) - 1n;
-function computeRequiredTarget(params, genesisCreatedAt, parentCreatedAt, candidateHeight) {
-    if (candidateHeight === 0n) {
-        return params.initialPowTarget;
+function calculateMedianTimePast(blockId, getBlock) {
+    const timestamps = [];
+    let cursor = blockId;
+    while (cursor !== null && timestamps.length < 11) {
+        const block = getBlock(cursor);
+        if (block === null) {
+            break;
+        }
+        timestamps.push(block.createdAt);
+        cursor = block.parentId;
     }
-    const heightDelta = candidateHeight - 1n;
-    const anchorParentTime = BigInt(genesisCreatedAt - params.targetBlockInterval);
-    const timeDelta = BigInt(parentCreatedAt) - anchorParentTime;
-    const exponent = (0, primitives_1.truncDivTowardZero)((timeDelta - BigInt(params.targetBlockInterval) * (heightDelta + 1n)) * RADIX, BigInt(params.asertHalfLife));
-    const numShifts = exponent >> 16n;
-    const frac = exponent - (numShifts * RADIX);
-    const factor = (((195766423245049n * frac) + (971821376n * frac * frac) + (5127n * frac * frac * frac) + (1n << 47n)) >> 48n) + RADIX;
-    let nextTarget = params.initialPowTarget * factor;
-    if (numShifts < 0n) {
-        nextTarget >>= -numShifts;
+    timestamps.sort((left, right) => left - right);
+    if (timestamps.length === 0) {
+        return 0;
     }
-    else {
-        nextTarget <<= numShifts;
-    }
-    nextTarget >>= 16n;
-    if (nextTarget < 1n) {
-        return 1n;
-    }
-    if (nextTarget > params.powLimitTarget) {
-        return params.powLimitTarget;
-    }
-    return nextTarget;
+    return timestamps[(timestamps.length - 1) >> 1];
 }
-function computeBlockWork(requiredTarget) {
-    return (MAX_U256 / (requiredTarget + 1n)) + 1n;
+function calculateCandidateTimestamp(parentBlockId, localUnixTime, getBlock) {
+    const medianTimePast = calculateMedianTimePast(parentBlockId, getBlock);
+    return Math.max(localUnixTime, medianTimePast + 1);
 }
-function targetToHex(requiredTarget) {
-    return (0, primitives_1.encodeU256)(requiredTarget).toString('hex');
+function calculateNextDifficulty(params, candidateHeight, parentBlock, getBlock) {
+    if (candidateHeight <= BigInt(params.difficultyWindow)) {
+        return params.initialDifficultyBits;
+    }
+    if ((candidateHeight - 1n) % BigInt(params.difficultyWindow) !== 0n) {
+        return parentBlock.requiredDifficulty;
+    }
+    const startBlock = getAncestor(parentBlock, params.difficultyWindow, getBlock);
+    const endMedianTimePast = calculateMedianTimePast(parentBlock.blockId, getBlock);
+    const startMedianTimePast = calculateMedianTimePast(startBlock.blockId, getBlock);
+    const actualSpan = BigInt(endMedianTimePast - startMedianTimePast);
+    if (actualSpan <= 0n) {
+        throw new Error('invalid non-positive difficulty timespan');
+    }
+    const targetSpan = BigInt(params.difficultyWindow * params.targetBlockSeconds);
+    let nextDifficulty = parentBlock.requiredDifficulty;
+    if (actualSpan * 4n < targetSpan * 3n) {
+        nextDifficulty += 1;
+    }
+    else if (actualSpan * 2n > targetSpan * 3n) {
+        nextDifficulty -= 1;
+    }
+    return clampDifficultyBits(nextDifficulty, params.minDifficultyBits, params.maxDifficultyBits);
 }
-function targetFromHex(requiredTargetHex) {
-    return (0, primitives_1.decodeU256)(Buffer.from(requiredTargetHex, 'hex'));
+function clampDifficultyBits(difficultyBits, minimumDifficultyBits, maximumDifficultyBits) {
+    if (difficultyBits < minimumDifficultyBits) {
+        return minimumDifficultyBits;
+    }
+    if (difficultyBits > maximumDifficultyBits) {
+        return maximumDifficultyBits;
+    }
+    return difficultyBits;
+}
+function computeBlockWork(requiredDifficulty) {
+    return 1n << BigInt(requiredDifficulty);
+}
+function getAncestor(block, depth, getBlock) {
+    let cursor = block;
+    for (let step = 0; step < depth; step += 1) {
+        if (cursor === null || cursor.parentId === null) {
+            throw new Error('insufficient ancestor history for difficulty retarget');
+        }
+        cursor = getBlock(cursor.parentId);
+    }
+    if (cursor === null) {
+        throw new Error('missing ancestor history for difficulty retarget');
+    }
+    return cursor;
 }

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ChainExecutor = void 0;
 const constants_1 = require("../consensus/constants");
+const constants_2 = require("../consensus/constants");
 const digest_1 = require("../state/digest");
 const utxo_view_1 = require("../state/utxo-view");
 const block_index_1 = require("./block-index");
@@ -82,7 +83,7 @@ class ChainExecutor {
         }
         return view;
     }
-    connectGenesis(blockId, createdAt = 0, requiredTarget = 0n, cumulativeWork = 0n) {
+    connectGenesis(blockId, createdAt = 0, requiredDifficulty = 0, cumulativeWork = 0n) {
         this.blockIndex.upsert({
             blockId,
             parentId: null,
@@ -97,7 +98,7 @@ class ChainExecutor {
             parentId: null,
             height: 0n,
             createdAt,
-            requiredTarget,
+            requiredDifficulty,
             blockWork: cumulativeWork,
             cumulativeWork,
             evaluation: {
@@ -109,7 +110,7 @@ class ChainExecutor {
                 totalMinimumBurn: 0n,
                 totalPriorityFee: 0n,
                 blockRewardAmount: 0n,
-                requiredTarget,
+                requiredDifficulty,
                 blockWork: cumulativeWork
             }
         });
@@ -198,6 +199,14 @@ class ChainExecutor {
         this.cumulativeFixedRewards += direction * (block.evaluation.blockRewardAmount - block.evaluation.totalPriorityFee);
         this.cumulativePriorityFees += direction * block.evaluation.totalPriorityFee;
         this.cumulativeMinimumBurns += direction * block.evaluation.totalMinimumBurn;
+        const totalSupply = this.cumulativeFixedRewards - this.cumulativeMinimumBurns;
+        if (totalSupply < 0n || totalSupply > constants_2.MAX_U128) {
+            throw new Error('consensus supply overflow');
+        }
+        const activeUtxoSum = this.utxoView.snapshot().reduce((sum, utxo) => sum + utxo.amount, 0n);
+        if (activeUtxoSum !== totalSupply) {
+            throw new Error('active UTXO sum does not match consensus supply');
+        }
     }
     revalidateMempool(predicate) {
         const confirmed = new Set([...this.connectedBlocks.values()]

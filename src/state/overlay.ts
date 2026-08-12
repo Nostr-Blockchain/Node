@@ -34,6 +34,20 @@ export class StateOverlay implements UtxoView {
     return [...merged.values()];
   }
 
+  public listAllUtxos(): UtxoRecord[] {
+    const merged = new Map<string, UtxoRecord>();
+    for (const utxo of this.baseView.listAllUtxos()) {
+      merged.set(key(utxo.sourceId, utxo.outputIndex), utxo);
+    }
+    for (const [compositeKey, utxo] of this.created.entries()) {
+      merged.set(compositeKey, utxo);
+    }
+    for (const compositeKey of this.deleted) {
+      merged.delete(compositeKey);
+    }
+    return [...merged.values()];
+  }
+
   public consumeUtxo(sourceId: Uint8Array, outputIndex: number): void {
     const compositeKey = key(sourceId, outputIndex);
     this.created.delete(compositeKey);

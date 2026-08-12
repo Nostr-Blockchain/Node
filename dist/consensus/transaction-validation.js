@@ -12,7 +12,8 @@ function validateTransactionEvent(event, chainIdHex, candidateHeight, params, cr
     return validateParsedTransaction(parsed, candidateHeight, params, cryptoProvider, view);
 }
 function validateParsedTransaction(parsed, candidateHeight, params, cryptoProvider, view) {
-    const { data, event } = parsed;
+    const { event } = parsed;
+    const data = (0, transaction_codec_1.canonicalizeTransactionData)(parsed.data);
     (0, errors_1.assertConsensus)(data.inputs.length >= 1 && data.inputs.length <= params.maxTxInputs, 'TX_BAD_COUNTS');
     (0, errors_1.assertConsensus)(data.outputs.length >= 1 && data.outputs.length <= params.maxTxOutputs, 'TX_BAD_COUNTS');
     for (let index = 1; index < data.inputs.length; index += 1) {
@@ -36,6 +37,7 @@ function validateParsedTransaction(parsed, candidateHeight, params, cryptoProvid
         }
         consumedOutpoints.push(utxo);
         sumInputs += utxo.amount;
+        (0, errors_1.assertConsensus)(sumInputs <= constants_1.MAX_U128 * BigInt(data.inputs.length), 'TX_VALUE_OVERFLOW');
     }
     const createdOutputs = [];
     let sumOutputs = 0n;
@@ -58,7 +60,10 @@ function validateParsedTransaction(parsed, candidateHeight, params, cryptoProvid
     (0, errors_1.assertConsensus)(fees.actualFee >= fees.minimumBurn, 'TX_FEE_TOO_LOW');
     (0, errors_1.assertConsensus)(fees.priorityFee <= constants_1.MAX_U128 - params.blockReward, 'TX_PRIORITY_TOO_LARGE');
     return {
-        parsed,
+        parsed: {
+            ...parsed,
+            data
+        },
         consumedOutpoints,
         createdOutputs,
         sumInputs,

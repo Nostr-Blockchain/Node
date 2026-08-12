@@ -30,6 +30,19 @@ class StateOverlay {
         }
         return [...merged.values()];
     }
+    listAllUtxos() {
+        const merged = new Map();
+        for (const utxo of this.baseView.listAllUtxos()) {
+            merged.set(key(utxo.sourceId, utxo.outputIndex), utxo);
+        }
+        for (const [compositeKey, utxo] of this.created.entries()) {
+            merged.set(compositeKey, utxo);
+        }
+        for (const compositeKey of this.deleted) {
+            merged.delete(compositeKey);
+        }
+        return [...merged.values()];
+    }
     consumeUtxo(sourceId, outputIndex) {
         const compositeKey = key(sourceId, outputIndex);
         this.created.delete(compositeKey);

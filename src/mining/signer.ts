@@ -12,9 +12,9 @@ export class InMemorySigner implements BlockSigner {
   private readonly publicKeyHex: string;
 
   public constructor(secretKey: Uint8Array, cryptoProvider: CryptoProvider) {
-    this.secretKey = secretKey;
+    this.secretKey = Uint8Array.from(secretKey);
     this.cryptoProvider = cryptoProvider;
-    this.publicKeyHex = bytesToHex(this.cryptoProvider.deriveXOnlyPublicKey(secretKey));
+    this.publicKeyHex = bytesToHex(this.cryptoProvider.deriveXOnlyPublicKey(this.secretKey));
   }
 
   public getPublicKeyHex(): string {

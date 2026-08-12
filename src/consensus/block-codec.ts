@@ -1,7 +1,7 @@
-import { BLOCK_KIND, GENESIS_SCOPE, NIP13_GATE_BITS, PROTOCOL_VERSION, makeChainScope } from './constants';
+import { BLOCK_KIND, GENESIS_SCOPE, NIP13_GATE_BITS, makeChainScope } from './constants';
 import { ConsensusError, assertConsensus } from './errors';
 import { NostrEvent } from './nip01';
-import { bytesToHex, compareBytes, hexToBytes, parseCanonicalDecimalU64 } from './primitives';
+import { compareBytes, hexToBytes, parseCanonicalDecimalU64 } from './primitives';
 
 export interface ParsedBlock {
   event: NostrEvent;
@@ -15,16 +15,16 @@ export function buildBlockTags(chainIdHex: string, parentIdHex: string, txIdsHex
   const sortedTxIds = [...txIdsHex].sort();
   return [
     ['t', makeChainScope(chainIdHex)],
-    ['e', parentIdHex],
-    ...sortedTxIds.map((txId) => ['e', txId]),
-    ['nonce', nonce.toString(10), NIP13_GATE_BITS.toString(10)]
+    ['e', parentIdHex, '', 'parent'],
+    ['nonce', nonce.toString(10), NIP13_GATE_BITS.toString(10)],
+    ...sortedTxIds.map((txId) => ['e', txId, '', 'tx'])
   ];
 }
 
 export function parseBlockEvent(event: NostrEvent, chainIdHex?: string): ParsedBlock {
   assertConsensus(event.kind === BLOCK_KIND, 'BLK_BAD_KIND');
   if (event.tags.length === 2 && event.tags[0]?.[0] === 't' && event.tags[0]?.[1] === GENESIS_SCOPE) {
-    assertConsensus(event.content.length === 147 * 2, 'BLK_BAD_CONTENT');
+    assertConsensus(event.content.length === 76 * 2, 'BLK_BAD_CONTENT');
     const nonceTag = event.tags[1] ?? [];
     assertConsensus(nonceTag.length === 3 && nonceTag[0] === 'nonce' && nonceTag[2] === NIP13_GATE_BITS.toString(10), 'BLK_BAD_NONCE');
     return {
@@ -41,15 +41,20 @@ export function parseBlockEvent(event: NostrEvent, chainIdHex?: string): ParsedB
   assertConsensus(event.tags.length >= 3, 'BLK_BAD_TAGS');
   const scopeTag = event.tags[0] ?? [];
   assertConsensus(scopeTag.length === 2 && scopeTag[0] === 't' && scopeTag[1] === makeChainScope(chainIdHex), 'BLK_BAD_SCOPE');
-  const nonceTag = event.tags[event.tags.length - 1] ?? [];
-  assertConsensus(nonceTag.length === 3 && nonceTag[0] === 'nonce' && nonceTag[2] === NIP13_GATE_BITS.toString(10), 'BLK_BAD_DIFFICULTY');
-  const eTags = event.tags.slice(1, -1);
-  assertConsensus(eTags.length >= 1, 'BLK_BAD_PARENT');
-  assertConsensus(eTags.every((tag) => tag.length === 2 && tag[0] === 'e'), 'BLK_BAD_TAGS');
-  const parentId = hexToBytes(eTags[0]![1]!, 32);
-  const txIds = eTags.slice(1).map((tag) => hexToBytes(tag[1]!, 32));
+  const parentTag = event.tags[1] ?? [];
+  assertConsensus(parentTag.length === 4 && parentTag[0] === 'e' && parentTag[2] === '' && parentTag[3] === 'parent', 'BLK_BAD_PARENT');
+  const nonceTag = event.tags[2] ?? [];
+  assertConsensus(nonceTag.length === 3 && nonceTag[0] === 'nonce' && nonceTag[2] === NIP13_GATE_BITS.toString(10), 'BLK_BAD_NONCE');
+  const parentId = hexToBytes(parentTag[1] ?? '', 32);
+  assertConsensus(compareBytes(parentId, hexToBytes(event.id, 32)) !== 0, 'BLK_SELF_PARENT');
+  const txTags = event.tags.slice(3);
+  assertConsensus(txTags.length <= 64, 'BLK_BAD_TAGS');
+  assertConsensus(txTags.every((tag) => tag.length === 4 && tag[0] === 'e' && tag[2] === '' && tag[3] === 'tx'), 'BLK_BAD_TAGS');
+  const txIds = txTags.map((tag) => hexToBytes(tag[1] ?? '', 32));
   for (let index = 1; index < txIds.length; index += 1) {
-    assertConsensus(compareBytes(txIds[index - 1]!, txIds[index]!) < 0, 'BLK_BAD_TAGS');
+    const comparison = compareBytes(txIds[index - 1]!, txIds[index]!);
+    assertConsensus(comparison !== 0, 'BLK_TX_DUPLICATE');
+    assertConsensus(comparison < 0, 'BLK_BAD_TAGS');
   }
   return {
     event,

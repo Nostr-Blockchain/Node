@@ -158,7 +158,7 @@ export function compareBytes(left: Uint8Array, right: Uint8Array): number {
   return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
 
-export function leadingZeroBits(bytes: Uint8Array): number {
+export function countLeadingZeroBits(bytes: Uint8Array): number {
   let count = 0;
   for (const byte of bytes) {
     if (byte === 0) {
@@ -175,6 +175,18 @@ export function leadingZeroBits(bytes: Uint8Array): number {
     }
   }
   return count;
+}
+
+export function countLeadingZeroBitsHex(hex: string): number {
+  return countLeadingZeroBits(hexToBytes(hex));
+}
+
+export function hasLeadingZeroBits(bytes: Uint8Array, expectedBits: number): boolean {
+  return countLeadingZeroBits(bytes) >= expectedBits;
+}
+
+export function leadingZeroBits(bytes: Uint8Array): number {
+  return countLeadingZeroBits(bytes);
 }
 
 export function parseCanonicalDecimalU64(text: string): bigint {

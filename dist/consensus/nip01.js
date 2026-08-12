@@ -7,6 +7,7 @@ exports.validateChainKind = validateChainKind;
 const constants_1 = require("./constants");
 const errors_1 = require("./errors");
 const primitives_1 = require("./primitives");
+const EXPECTED_TOP_LEVEL_KEYS = ['content', 'created_at', 'id', 'kind', 'pubkey', 'sig', 'tags'];
 function serializeEventForId(event) {
     return JSON.stringify([0, event.pubkey, event.created_at, event.kind, event.tags, event.content]);
 }
@@ -14,12 +15,11 @@ function computeEventId(event) {
     return (0, primitives_1.bytesToHex)((0, primitives_1.sha256)((0, primitives_1.utf8Bytes)(serializeEventForId(event))));
 }
 function validateNip01Event(event, expectedKind, cryptoProvider, errorPrefix) {
-    (0, errors_1.assertConsensus)(typeof event === 'object' && event !== null && !Array.isArray(event), `${errorPrefix}_BAD_JSON`);
+    assertRepresentation(typeof event === 'object' && event !== null && !Array.isArray(event), `${errorPrefix}_BAD_JSON`);
     const record = event;
     const keys = Object.keys(record);
-    (0, errors_1.assertConsensus)(keys.length === 7, `${errorPrefix}_BAD_JSON`);
-    const expectedKeys = ['content', 'created_at', 'id', 'kind', 'pubkey', 'sig', 'tags'];
-    (0, errors_1.assertConsensus)(keys.slice().sort().join(',') === expectedKeys.join(','), `${errorPrefix}_BAD_JSON`);
+    assertRepresentation(keys.length === 7, `${errorPrefix}_BAD_JSON`);
+    assertRepresentation(keys.slice().sort().join(',') === EXPECTED_TOP_LEVEL_KEYS.join(','), `${errorPrefix}_BAD_JSON`);
     const nostrEvent = {
         id: stringField(record.id, `${errorPrefix}_BAD_JSON`),
         pubkey: stringField(record.pubkey, `${errorPrefix}_BAD_JSON`),
@@ -29,23 +29,23 @@ function validateNip01Event(event, expectedKind, cryptoProvider, errorPrefix) {
         content: stringField(record.content, `${errorPrefix}_BAD_JSON`),
         sig: stringField(record.sig, `${errorPrefix}_BAD_JSON`)
     };
-    assertHex(nostrEvent.id, 32, `${errorPrefix}_BAD_NIP01_ID`);
-    assertHex(nostrEvent.pubkey, 32, `${errorPrefix}_BAD_JSON`);
-    assertHex(nostrEvent.sig, 64, `${errorPrefix}_BAD_SIGNATURE`);
-    (0, errors_1.assertConsensus)(BigInt(nostrEvent.created_at) >= 0n && BigInt(nostrEvent.created_at) <= constants_1.MAX_SAFE_CREATED_AT, `${errorPrefix}_BAD_JSON`);
-    (0, errors_1.assertConsensus)(Number.isInteger(nostrEvent.kind) && nostrEvent.kind >= 0 && nostrEvent.kind <= 65535, `${errorPrefix}_BAD_KIND`);
-    (0, errors_1.assertConsensus)(nostrEvent.kind === expectedKind, `${errorPrefix}_BAD_KIND`);
-    (0, errors_1.assertConsensus)(cryptoProvider.isValidXOnlyPublicKey((0, primitives_1.hexToBytes)(nostrEvent.pubkey, 32)), `${errorPrefix}_BAD_JSON`);
-    const recomputed = computeEventId({
+    assertRepresentation(isLowercaseHexOfLength(nostrEvent.id, 32), `${errorPrefix}_BAD_NIP01_ID`);
+    assertRepresentation(isLowercaseHexOfLength(nostrEvent.pubkey, 32), `${errorPrefix}_BAD_JSON`);
+    assertRepresentation(isLowercaseHexOfLength(nostrEvent.sig, 64), `${errorPrefix}_BAD_SIGNATURE`);
+    assertRepresentation(BigInt(nostrEvent.created_at) >= 0n && BigInt(nostrEvent.created_at) <= constants_1.MAX_SAFE_CREATED_AT, `${errorPrefix}_BAD_JSON`);
+    const canonicalEventId = computeEventId({
         pubkey: nostrEvent.pubkey,
         created_at: nostrEvent.created_at,
         kind: nostrEvent.kind,
         tags: nostrEvent.tags,
         content: nostrEvent.content
     });
-    (0, errors_1.assertConsensus)(recomputed === nostrEvent.id, `${errorPrefix}_BAD_NIP01_ID`);
+    assertIntrinsic(Number.isInteger(nostrEvent.kind) && nostrEvent.kind >= 0 && nostrEvent.kind <= 65535, `${errorPrefix}_BAD_KIND`, canonicalEventId);
+    assertIntrinsic(nostrEvent.kind === expectedKind, `${errorPrefix}_BAD_KIND`, canonicalEventId);
+    assertIntrinsic(cryptoProvider.isValidXOnlyPublicKey((0, primitives_1.hexToBytes)(nostrEvent.pubkey, 32)), `${errorPrefix}_BAD_JSON`, canonicalEventId);
+    assertRepresentation(canonicalEventId === nostrEvent.id, `${errorPrefix}_BAD_NIP01_ID`, canonicalEventId);
     const signatureValid = cryptoProvider.verifySchnorr((0, primitives_1.hexToBytes)(nostrEvent.pubkey, 32), (0, primitives_1.hexToBytes)(nostrEvent.id, 32), (0, primitives_1.hexToBytes)(nostrEvent.sig, 64));
-    (0, errors_1.assertConsensus)(signatureValid, `${errorPrefix}_BAD_SIGNATURE`);
+    assertRepresentation(signatureValid, `${errorPrefix}_BAD_SIGNATURE`, canonicalEventId);
     return nostrEvent;
 }
 function validateChainKind(kind) {
@@ -56,22 +56,31 @@ function validateChainKind(kind) {
     throw new errors_1.ConsensusError('BAD_KIND');
 }
 function stringField(value, code) {
-    (0, errors_1.assertConsensus)(typeof value === 'string', code);
+    assertRepresentation(typeof value === 'string', code);
     return value;
 }
 function numberField(value, code) {
-    (0, errors_1.assertConsensus)(typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value), code);
+    assertRepresentation(typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && Number.isSafeInteger(value), code);
     return value;
 }
 function tagField(value, code) {
-    (0, errors_1.assertConsensus)(Array.isArray(value), code);
+    assertRepresentation(Array.isArray(value), code);
     return value.map((tag) => {
-        (0, errors_1.assertConsensus)(Array.isArray(tag), code);
-        (0, errors_1.assertConsensus)(tag.every((entry) => typeof entry === 'string'), code);
+        assertIntrinsic(Array.isArray(tag), code, null);
+        assertIntrinsic(tag.every((entry) => typeof entry === 'string'), code, null);
         return [...tag];
     });
 }
-function assertHex(value, bytes, code) {
-    (0, errors_1.assertConsensus)(/^[0-9a-f]+$/.test(value), code);
-    (0, errors_1.assertConsensus)(value.length === bytes * 2, code);
+function isLowercaseHexOfLength(value, bytes) {
+    return value.length === bytes * 2 && /^[0-9a-f]+$/u.test(value);
+}
+function assertRepresentation(condition, code, canonicalEventId = null) {
+    if (!condition) {
+        throw new errors_1.ClassifiedConsensusError(code, 'representation-invalid', canonicalEventId, false);
+    }
+}
+function assertIntrinsic(condition, code, canonicalEventId) {
+    if (!condition) {
+        throw new errors_1.ClassifiedConsensusError(code, 'id-intrinsic-invalid', canonicalEventId, canonicalEventId !== null);
+    }
 }

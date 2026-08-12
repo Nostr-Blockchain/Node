@@ -7,13 +7,28 @@
     "node": ">=24.0.0"
   },
   "bin": {
-    "nostr-chain-node": "dist/cli/main.js",
-    "nostr-chain-wallet": "dist/tools/wallet.js"
+    "nostr-blockchain": "dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test dist/tests/**/*.test.js",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
+    "lint": "node -e \"console.error('NOT_IMPLEMENTED: lint script is not configured in Sprint 1'); process.exit(1)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "npm run typecheck",
+    "test": "npm run build && node --test --test-concurrency=1 dist/tests/**/*.test.js",
+    "test:unit": "npm run test",
+    "test:consensus": "npm run build && node --test dist/tests/consensus/**/*.test.js",
+    "test:cachewalk": "npm run build && node --test dist/tests/consensus/pow*.test.js dist/tests/consensus/reference-vectors*.test.js",
+    "test:difficulty": "npm run build && node --test dist/tests/consensus/difficulty*.test.js",
+    "test:wallet": "npm run build && node --test dist/tests/cli/wallet*.test.js",
+    "test:storage": "npm run build && node --test dist/tests/node/**/*.test.js",
+    "test:relay": "npm run build && node --test --test-concurrency=1 dist/tests/node/relay*.test.js",
+    "test:sync": "npm run build && node --test --test-concurrency=1 dist/tests/node/sync*.test.js",
+    "test:reorg": "npm run build && node --test dist/tests/reorg/**/*.test.js",
+    "test:functional": "npm run build && node --test --test-concurrency=1 dist/tests/acceptance/**/*.test.js",
+    "test:crash": "npm run build && node --test --test-concurrency=1 dist/tests/node/crash*.test.js",
+    "test:fuzz": "npm run build && node --test dist/tests/consensus/fuzz*.test.js",
+    "test:cross-network": "npm run build && node --test --test-concurrency=1 dist/tests/cli/cross-network*.test.js",
+    "test:reference-vectors": "npm run build && node --test dist/tests/consensus/reference-vectors*.test.js",
     "acceptance": "npm run build && node dist/tests/acceptance/prototype-demo.js"
   },
   "dependencies": {

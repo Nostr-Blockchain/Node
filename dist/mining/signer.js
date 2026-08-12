@@ -7,9 +7,9 @@ class InMemorySigner {
     cryptoProvider;
     publicKeyHex;
     constructor(secretKey, cryptoProvider) {
-        this.secretKey = secretKey;
+        this.secretKey = Uint8Array.from(secretKey);
         this.cryptoProvider = cryptoProvider;
-        this.publicKeyHex = (0, primitives_1.bytesToHex)(this.cryptoProvider.deriveXOnlyPublicKey(secretKey));
+        this.publicKeyHex = (0, primitives_1.bytesToHex)(this.cryptoProvider.deriveXOnlyPublicKey(this.secretKey));
     }
     getPublicKeyHex() {
         return this.publicKeyHex;

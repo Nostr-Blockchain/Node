@@ -1,5 +1,5 @@
 import { BLOCK_KIND, MAX_SAFE_CREATED_AT, TX_KIND } from './constants';
-import { ConsensusError, assertConsensus } from './errors';
+import { ClassifiedConsensusError, ConsensusError } from './errors';
 import { bytesToHex, hexToBytes, sha256, utf8Bytes } from './primitives';
 import { CryptoProvider } from '../crypto/provider';
 
@@ -15,6 +15,8 @@ export interface NostrEvent {
   sig: string;
 }
 
+const EXPECTED_TOP_LEVEL_KEYS = ['content', 'created_at', 'id', 'kind', 'pubkey', 'sig', 'tags'];
+
 export function serializeEventForId(event: Omit<NostrEvent, 'id' | 'sig'>): string {
   return JSON.stringify([0, event.pubkey, event.created_at, event.kind, event.tags, event.content]);
 }
@@ -24,12 +26,11 @@ export function computeEventId(event: Omit<NostrEvent, 'id' | 'sig'>): string {
 }
 
 export function validateNip01Event(event: unknown, expectedKind: number, cryptoProvider: CryptoProvider, errorPrefix: 'TX' | 'BLK'): NostrEvent {
-  assertConsensus(typeof event === 'object' && event !== null && !Array.isArray(event), `${errorPrefix}_BAD_JSON`);
+  assertRepresentation(typeof event === 'object' && event !== null && !Array.isArray(event), `${errorPrefix}_BAD_JSON`);
   const record = event as Record<string, unknown>;
   const keys = Object.keys(record);
-  assertConsensus(keys.length === 7, `${errorPrefix}_BAD_JSON`);
-  const expectedKeys = ['content', 'created_at', 'id', 'kind', 'pubkey', 'sig', 'tags'];
-  assertConsensus(keys.slice().sort().join(',') === expectedKeys.join(','), `${errorPrefix}_BAD_JSON`);
+  assertRepresentation(keys.length === 7, `${errorPrefix}_BAD_JSON`);
+  assertRepresentation(keys.slice().sort().join(',') === EXPECTED_TOP_LEVEL_KEYS.join(','), `${errorPrefix}_BAD_JSON`);
 
   const nostrEvent: NostrEvent = {
     id: stringField(record.id, `${errorPrefix}_BAD_JSON`),
@@ -41,29 +42,31 @@ export function validateNip01Event(event: unknown, expectedKind: number, cryptoP
     sig: stringField(record.sig, `${errorPrefix}_BAD_JSON`)
   };
 
-  assertHex(nostrEvent.id, 32, `${errorPrefix}_BAD_NIP01_ID`);
-  assertHex(nostrEvent.pubkey, 32, `${errorPrefix}_BAD_JSON`);
-  assertHex(nostrEvent.sig, 64, `${errorPrefix}_BAD_SIGNATURE`);
-  assertConsensus(BigInt(nostrEvent.created_at) >= 0n && BigInt(nostrEvent.created_at) <= MAX_SAFE_CREATED_AT, `${errorPrefix}_BAD_JSON`);
-  assertConsensus(Number.isInteger(nostrEvent.kind) && nostrEvent.kind >= 0 && nostrEvent.kind <= 65535, `${errorPrefix}_BAD_KIND`);
-  assertConsensus(nostrEvent.kind === expectedKind, `${errorPrefix}_BAD_KIND`);
-  assertConsensus(cryptoProvider.isValidXOnlyPublicKey(hexToBytes(nostrEvent.pubkey, 32)), `${errorPrefix}_BAD_JSON`);
+  assertRepresentation(isLowercaseHexOfLength(nostrEvent.id, 32), `${errorPrefix}_BAD_NIP01_ID`);
+  assertRepresentation(isLowercaseHexOfLength(nostrEvent.pubkey, 32), `${errorPrefix}_BAD_JSON`);
+  assertRepresentation(isLowercaseHexOfLength(nostrEvent.sig, 64), `${errorPrefix}_BAD_SIGNATURE`);
+  assertRepresentation(BigInt(nostrEvent.created_at) >= 0n && BigInt(nostrEvent.created_at) <= MAX_SAFE_CREATED_AT, `${errorPrefix}_BAD_JSON`);
 
-  const recomputed = computeEventId({
+  const canonicalEventId = computeEventId({
     pubkey: nostrEvent.pubkey,
     created_at: nostrEvent.created_at,
     kind: nostrEvent.kind,
     tags: nostrEvent.tags,
     content: nostrEvent.content
   });
-  assertConsensus(recomputed === nostrEvent.id, `${errorPrefix}_BAD_NIP01_ID`);
+
+  assertIntrinsic(Number.isInteger(nostrEvent.kind) && nostrEvent.kind >= 0 && nostrEvent.kind <= 65535, `${errorPrefix}_BAD_KIND`, canonicalEventId);
+  assertIntrinsic(nostrEvent.kind === expectedKind, `${errorPrefix}_BAD_KIND`, canonicalEventId);
+  assertIntrinsic(cryptoProvider.isValidXOnlyPublicKey(hexToBytes(nostrEvent.pubkey, 32)), `${errorPrefix}_BAD_JSON`, canonicalEventId);
+
+  assertRepresentation(canonicalEventId === nostrEvent.id, `${errorPrefix}_BAD_NIP01_ID`, canonicalEventId);
 
   const signatureValid = cryptoProvider.verifySchnorr(
     hexToBytes(nostrEvent.pubkey, 32),
     hexToBytes(nostrEvent.id, 32),
     hexToBytes(nostrEvent.sig, 64)
   );
-  assertConsensus(signatureValid, `${errorPrefix}_BAD_SIGNATURE`);
+  assertRepresentation(signatureValid, `${errorPrefix}_BAD_SIGNATURE`, canonicalEventId);
 
   return nostrEvent;
 }
@@ -75,25 +78,36 @@ export function validateChainKind(kind: number): 'tx' | 'block' {
 }
 
 function stringField(value: unknown, code: string): string {
-  assertConsensus(typeof value === 'string', code);
+  assertRepresentation(typeof value === 'string', code);
   return value;
 }
 
 function numberField(value: unknown, code: string): number {
-  assertConsensus(typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value), code);
+  assertRepresentation(typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && Number.isSafeInteger(value), code);
   return value;
 }
 
 function tagField(value: unknown, code: string): NostrTag[] {
-  assertConsensus(Array.isArray(value), code);
+  assertRepresentation(Array.isArray(value), code);
   return value.map((tag) => {
-    assertConsensus(Array.isArray(tag), code);
-    assertConsensus(tag.every((entry) => typeof entry === 'string'), code);
+    assertIntrinsic(Array.isArray(tag), code, null);
+    assertIntrinsic(tag.every((entry) => typeof entry === 'string'), code, null);
     return [...tag] as string[];
   });
 }
 
-function assertHex(value: string, bytes: number, code: string): void {
-  assertConsensus(/^[0-9a-f]+$/.test(value), code);
-  assertConsensus(value.length === bytes * 2, code);
+function isLowercaseHexOfLength(value: string, bytes: number): boolean {
+  return value.length === bytes * 2 && /^[0-9a-f]+$/u.test(value);
+}
+
+function assertRepresentation(condition: unknown, code: string, canonicalEventId: string | null = null): asserts condition {
+  if (!condition) {
+    throw new ClassifiedConsensusError(code, 'representation-invalid', canonicalEventId, false);
+  }
+}
+
+function assertIntrinsic(condition: unknown, code: string, canonicalEventId: string | null): asserts condition {
+  if (!condition) {
+    throw new ClassifiedConsensusError(code, 'id-intrinsic-invalid', canonicalEventId, canonicalEventId !== null);
+  }
 }

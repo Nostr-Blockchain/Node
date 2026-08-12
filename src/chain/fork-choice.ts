@@ -20,13 +20,25 @@ export function chooseBetterTip(currentTip: BlockIndexEntry | null, candidateTip
 }
 
 export function chooseInitialTip(tips: readonly BlockIndexEntry[]): BlockIndexEntry | null {
-  const comparableTips = tips.filter(isComparableTip);
+  const comparableTips: ComparableTip[] = tips.filter((tip): tip is ComparableTip => isComparableTip(tip) && tip.height > 0n);
   if (comparableTips.length === 0) {
     return null;
   }
-  const bestWork = comparableTips.reduce((best, tip) => tip.cumulativeWork > best ? tip.cumulativeWork : best, comparableTips[0]!.cumulativeWork);
+  const bestWork = comparableTips.reduce((bestWorkValue, tip) => tip.cumulativeWork > bestWorkValue ? tip.cumulativeWork : bestWorkValue, comparableTips[0]!.cumulativeWork);
   const bestTips = comparableTips.filter((tip) => tip.cumulativeWork === bestWork);
   return bestTips.sort((left, right) => compareBytes(Buffer.from(left.blockId, 'hex'), Buffer.from(right.blockId, 'hex')))[0] ?? null;
+}
+
+export function choosePreferredTip(tips: readonly BlockIndexEntry[], preferredTipId: string | null): BlockIndexEntry | null {
+  const initialTip = chooseInitialTip(tips);
+  if (initialTip === null || preferredTipId === null) {
+    return initialTip;
+  }
+  const preferredTip = tips.find((tip) => tip.blockId === preferredTipId) ?? null;
+  if (!isComparableTip(preferredTip) || preferredTip.height === 0n) {
+    return initialTip;
+  }
+  return preferredTip.cumulativeWork === initialTip.cumulativeWork ? preferredTip : initialTip;
 }
 
 function isComparableTip(tip: BlockIndexEntry | null): tip is ComparableTip {

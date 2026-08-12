@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 1;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -50,9 +50,14 @@ CREATE TABLE IF NOT EXISTS blocks (
   miner_pubkey      BLOB NOT NULL CHECK(length(miner_pubkey)=32),
   height            INTEGER,
   nonce_be8         BLOB NOT NULL CHECK(length(nonce_be8)=8),
-  required_target   BLOB CHECK(required_target IS NULL OR length(required_target)=32),
-  block_work_dec    TEXT,
-  cumulative_work_dec TEXT,
+  work_difficulty   INTEGER,
+  median_time_past  INTEGER,
+  credited_work_be32 BLOB CHECK(credited_work_be32 IS NULL OR length(credited_work_be32)=32),
+  cumulative_work_be32 BLOB CHECK(cumulative_work_be32 IS NULL OR length(cumulative_work_be32)=32),
+  total_burn_be16   BLOB CHECK(total_burn_be16 IS NULL OR length(total_burn_be16)=16),
+  total_priority_be16 BLOB CHECK(total_priority_be16 IS NULL OR length(total_priority_be16)=16),
+  reward_amount_be16 BLOB CHECK(reward_amount_be16 IS NULL OR length(reward_amount_be16)=16),
+  supply_after_be16 BLOB CHECK(supply_after_be16 IS NULL OR length(supply_after_be16)=16),
   validation_state  TEXT NOT NULL,
   invalid_code      TEXT,
   active            INTEGER NOT NULL DEFAULT 0 CHECK(active IN (0,1))
@@ -104,6 +109,13 @@ CREATE TABLE IF NOT EXISTS undo_created (
   PRIMARY KEY(block_id, source_id, source_index)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS undo_state (
+  block_id            BLOB PRIMARY KEY REFERENCES blocks(block_id),
+  supply_before_be16  BLOB NOT NULL CHECK(length(supply_before_be16)=16),
+  previous_tip_id     BLOB NOT NULL CHECK(length(previous_tip_id)=32),
+  previous_height     INTEGER NOT NULL CHECK(previous_height>=0)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS mempool (
   tx_id             BLOB PRIMARY KEY REFERENCES transactions(tx_id),
   actual_fee_be17   BLOB NOT NULL CHECK(length(actual_fee_be17)=17),
@@ -138,13 +150,34 @@ CREATE TABLE IF NOT EXISTS relay_state (
 
 export const REQUIRED_META_KEYS = [
   'schema_version',
+  'network',
   'chain_id',
   'protocol_version',
   'active_tip',
   'active_height',
-  'cumulative_fixed_rewards',
-  'cumulative_minimum_burns',
-  'cumulative_priority_fees',
-  'active_cumulative_work',
+  'supply',
   'next_received_seq'
+] as const;
+
+export const PRODUCTION_TABLE_NAMES = [
+  'meta',
+  'events',
+  'transactions',
+  'tx_inputs',
+  'tx_outputs',
+  'blocks',
+  'block_transactions',
+  'active_chain',
+  'utxos',
+  'undo_spent',
+  'undo_created',
+  'undo_state',
+  'mempool',
+  'mempool_inputs',
+  'missing_objects',
+  'relay_state'
+] as const;
+
+export const LEGACY_PROTOTYPE_TABLE_NAMES = [
+  'node_announcements'
 ] as const;
